@@ -208,10 +208,27 @@ class SeedVRLibraryAdvanced(AdvancedNodeLibrary):
         import tempfile
 
         logger.info(f"Downloading apex wheel for Python {py_version}...")
-        with tempfile.NamedTemporaryFile(suffix=".whl", delete=False) as tmp:
-            urllib.request.urlretrieve(whl_url, tmp.name)  # noqa: S310
-            whl_path = tmp.name
+        whl_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".whl", delete=False) as tmp:
+                urllib.request.urlretrieve(whl_url, tmp.name)  # noqa: S310
+                whl_path = tmp.name
 
-        logger.info("Installing apex...")
-        subprocess.check_call([str(venv_python), "-m", "pip", "install", whl_path])
-        logger.info("apex installed successfully")
+            logger.info("Installing apex...")
+            result = subprocess.run(
+                [str(venv_python), "-m", "pip", "install", whl_path],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                logger.info("apex installed successfully")
+            else:
+                logger.warning(
+                    "apex wheel install failed. SeedVR2 will use a pure-PyTorch fallback for fused norms. "
+                    f"Details: {result.stderr.strip()}"
+                )
+        except Exception as exc:
+            logger.warning(f"apex install skipped ({exc}). SeedVR2 will use a pure-PyTorch fallback for fused norms.")
+        finally:
+            if whl_path is not None:
+                Path(whl_path).unlink(missing_ok=True)

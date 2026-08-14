@@ -295,9 +295,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                             qi = q[qs:qe].transpose(0, 1).unsqueeze(0)
                             ki = k[ks:ke].transpose(0, 1).unsqueeze(0)
                             vi = v[ks:ke].transpose(0, 1).unsqueeze(0)
-                            out = F.scaled_dot_product_attention(
-                                qi, ki, vi, scale=softmax_scale, is_causal=causal
-                            )
+                            out = F.scaled_dot_product_attention(qi, ki, vi, scale=softmax_scale, is_causal=causal)
                             # (1, nheads, seqlen, dim) → (seqlen, nheads, dim)
                             outputs.append(out.squeeze(0).transpose(0, 1))
                         return torch.cat(outputs, dim=0)
@@ -306,6 +304,62 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                     _stub.flash_attn_varlen_func = _flash_attn_varlen_func_sdpa  # type: ignore[attr-defined]
                     sys.modules["flash_attn"] = _stub
                     logger.warning("flash_attn not installed — using PyTorch SDPA fallback")
+
+            # Inject an apex stub before any SeedVR model code is imported.
+            # apex has no Windows or general-PyPI wheels; the pre-built wheels from
+            # ByteDance are Linux-only. The stub provides FusedLayerNorm (→ nn.LayerNorm)
+            # and FusedRMSNorm (→ pure-PyTorch RMSNorm) so normalization.py loads cleanly.
+            if "apex" not in sys.modules:
+                try:
+                    import apex  # noqa: F401
+                except ImportError:
+                    import types as _types
+
+                    import torch.nn as nn
+
+                    class _FusedLayerNorm(nn.LayerNorm):
+                        def __init__(
+                            self,
+                            normalized_shape: int | list[int],
+                            elementwise_affine: bool = True,
+                            eps: float = 1e-5,
+                            **kwargs: object,
+                        ) -> None:
+                            super().__init__(
+                                normalized_shape,
+                                eps=eps,
+                                elementwise_affine=elementwise_affine,
+                            )
+
+                    class _FusedRMSNorm(nn.Module):
+                        def __init__(
+                            self,
+                            normalized_shape: int | list[int],
+                            elementwise_affine: bool = True,
+                            eps: float = 1e-6,
+                            **kwargs: object,
+                        ) -> None:
+                            super().__init__()
+                            self.normalized_shape = normalized_shape
+                            self.eps = eps
+                            self.elementwise_affine = elementwise_affine
+                            if elementwise_affine:
+                                self.weight = nn.Parameter(torch.ones(normalized_shape))
+
+                        def forward(self, x: torch.Tensor) -> torch.Tensor:
+                            norm = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+                            if self.elementwise_affine:
+                                norm = norm * self.weight
+                            return norm
+
+                    _apex_stub = _types.ModuleType("apex")
+                    _apex_norm_stub = _types.ModuleType("apex.normalization")
+                    _apex_norm_stub.FusedLayerNorm = _FusedLayerNorm  # type: ignore[attr-defined]
+                    _apex_norm_stub.FusedRMSNorm = _FusedRMSNorm  # type: ignore[attr-defined]
+                    _apex_stub.normalization = _apex_norm_stub  # type: ignore[attr-defined]
+                    sys.modules["apex"] = _apex_stub
+                    sys.modules["apex.normalization"] = _apex_norm_stub
+                    logger.warning("apex not installed — using pure-PyTorch LayerNorm/RMSNorm fallback")
 
             # torch.distributed requires these env vars even for single-GPU inference
             os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
