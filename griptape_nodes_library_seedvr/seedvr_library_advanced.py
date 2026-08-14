@@ -39,9 +39,7 @@ class SeedVRLibraryAdvanced(AdvancedNodeLibrary):
         if submodule_dir.exists() and any(submodule_dir.iterdir()):
             logger.info("Submodule already initialized")
             return submodule_dir
-        subprocess.check_call(
-            ["git", "-C", str(library_root.parent), "submodule", "update", "--init", "--recursive"]
-        )
+        subprocess.check_call(["git", "-C", str(library_root.parent), "submodule", "update", "--init", "--recursive"])
         if not submodule_dir.exists() or not any(submodule_dir.iterdir()):
             raise RuntimeError(f"Submodule init failed: {submodule_dir}")
         logger.info("Submodule initialized successfully")
@@ -56,9 +54,7 @@ class SeedVRLibraryAdvanced(AdvancedNodeLibrary):
 
     def _get_submodule_commit(self, submodule_path: Path) -> str:
         """Return the HEAD commit SHA of the submodule (the version pinned by the library author)."""
-        return subprocess.check_output(
-            ["git", "-C", str(submodule_path), "rev-parse", "HEAD"], text=True
-        ).strip()
+        return subprocess.check_output(["git", "-C", str(submodule_path), "rev-parse", "HEAD"], text=True).strip()
 
     def _get_installed_sentinel(self) -> Path:
         return self._get_library_root() / ".installed_commit"
