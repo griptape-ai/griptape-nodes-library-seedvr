@@ -1,0 +1,46 @@
+{
+    "name": "Griptape Nodes SeedVR Library",
+    "library_schema_version": "0.5.0",
+    "advanced_library_path": "seedvr_library_advanced.py",
+    "metadata": {
+        "author": "Griptape, Inc.",
+        "description": "Video and image super-resolution using SeedVR2 diffusion transformers from ByteDance.",
+        "library_version": "0.1.0",
+        "engine_version": "0.97.0",
+        "tags": [
+            "Griptape",
+            "AI",
+            "Video",
+            "Restoration",
+            "Upscaling",
+            "Super-Resolution"
+        ],
+        "dependencies": {
+            "pip_dependencies": [
+                "torch",
+                "torchvision",
+                "torchaudio"
+            ],
+            "pip_install_flags": [
+                "--preview",
+                "--torch-backend=auto"
+            ]
+        },
+        "resources": {
+            "required": {
+                "compute": [["cuda"], "has_any"]
+            }
+        }
+    },
+    "categories": [
+        {
+            "video/restoration": {
+                "color": "border-green-500",
+                "title": "Video Restoration",
+                "description": "Video and image super-resolution using SeedVR diffusion transformers",
+                "icon": "Video"
+            }
+        }
+    ],
+    "nodes": []
+}
