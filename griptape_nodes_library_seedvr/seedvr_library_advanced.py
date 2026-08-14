@@ -86,11 +86,14 @@ class SeedVRLibraryAdvanced(AdvancedNodeLibrary):
         venv_python = self._get_venv_python_path()
         self._ensure_pip()
 
-        # torch/torchvision/torchaudio are managed by the manifest pip_dependencies
-        # and are already installed in the venv. Passing them to pip again causes
-        # "no RECORD file" errors when pip tries to uninstall the existing install.
-        # Strip those lines before running the install.
-        _TORCH_PKGS = {"torch", "torchvision", "torchaudio"}
+        # Packages to skip from requirements.txt:
+        # - torch/torchvision/torchaudio: managed by the manifest pip_dependencies;
+        #   re-installing causes "no RECORD file" errors on the existing install.
+        # - transformers: listed in requirements.txt but never imported by SeedVR
+        #   inference code (pre-computed embeddings bypass the text encoder entirely).
+        #   On Windows, transformers has a file path that exceeds the 260-char limit
+        #   and will fail to install without the LongPathsEnabled registry key.
+        _TORCH_PKGS = {"torch", "torchvision", "torchaudio", "transformers"}
         raw_lines = requirements_file.read_text().splitlines()
         filtered = [
             ln
