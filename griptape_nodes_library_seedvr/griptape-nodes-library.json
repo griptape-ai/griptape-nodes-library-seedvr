@@ -70,6 +70,15 @@
                 "description": "Upscales and restores a video using SeedVR2, a one-step diffusion transformer model from ByteDance. Handles model download, caching, and GPU inference automatically.",
                 "display_name": "SeedVR2 Video Upscale"
             }
+        },
+        {
+            "class_name": "SeedVR2ImageUpscale",
+            "file_path": "seedvr2_image_upscale.py",
+            "metadata": {
+                "category": "video/restoration",
+                "description": "Upscales and restores a single image using SeedVR2, a one-step diffusion transformer model from ByteDance. Handles model download, caching, and GPU inference automatically.",
+                "display_name": "SeedVR2 Image Upscale"
+            }
         }
     ]
 }
