@@ -31,10 +31,16 @@
                 "compute": [["cuda"], "has_any"]
             }
         },
-        "declarations": {
-            "worker_mode_compatibility": "COMPATIBLE",
-            "suggested_worker_mode": "WORKER"
-        }
+        "declarations": [
+            {
+                "type": "worker_mode_compatibility",
+                "compatibility": "COMPATIBLE"
+            },
+            {
+                "type": "suggested_worker_mode",
+                "mode": "WORKER"
+            }
+        ]
     },
     "categories": [
         {
