@@ -158,7 +158,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         super().after_value_set(parameter, value)
         self._seed_param.after_value_set(parameter, value)
         if parameter.name == "input_video" and value is not None:
-            self._update_batch_size_from_video(value)
+            self._update_params_from_video(value)
 
     def after_incoming_connection(
         self,
@@ -170,9 +170,9 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         if target_parameter.name == "input_video":
             value = self.parameter_values.get("input_video")
             if value is not None:
-                self._update_batch_size_from_video(value)
+                self._update_params_from_video(value)
 
-    def _update_batch_size_from_video(self, video_artifact: Any) -> None:
+    def _update_params_from_video(self, video_artifact: Any) -> None:
         if not isinstance(video_artifact, VideoUrlArtifact):
             return
         try:
@@ -181,9 +181,12 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             path = File(video_artifact.value).resolve()
             cap = cv2.VideoCapture(path)
             frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
             cap.release()
             if frame_count > 0:
                 self.set_parameter_value("batch_size", ideal_batch_size(frame_count))
+            if fps > 0:
+                self.set_parameter_value("output_fps", float(fps))
         except Exception:
             pass
 
@@ -254,6 +257,13 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
 
             if str(seedvr_root) not in sys.path:
                 sys.path.insert(0, str(seedvr_root))
+
+            # torch.distributed requires these env vars even for single-GPU inference
+            os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
+            os.environ.setdefault("MASTER_PORT", "29500")
+            os.environ.setdefault("RANK", "0")
+            os.environ.setdefault("LOCAL_RANK", "0")
+            os.environ.setdefault("WORLD_SIZE", "1")
 
             import torch.distributed as dist
 
