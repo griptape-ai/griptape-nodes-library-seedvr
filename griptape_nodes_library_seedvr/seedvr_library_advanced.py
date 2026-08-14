@@ -85,10 +85,38 @@ class SeedVRLibraryAdvanced(AdvancedNodeLibrary):
             return
         venv_python = self._get_venv_python_path()
         self._ensure_pip()
-        logger.info(f"Installing requirements from {requirements_file}...")
-        subprocess.check_call(
-            [str(venv_python), "-m", "pip", "install", "--no-build-isolation", "-r", str(requirements_file)]
-        )
+
+        # torch/torchvision/torchaudio are managed by the manifest pip_dependencies
+        # and are already installed in the venv. Passing them to pip again causes
+        # "no RECORD file" errors when pip tries to uninstall the existing install.
+        # Strip those lines before running the install.
+        _TORCH_PKGS = {"torch", "torchvision", "torchaudio"}
+        raw_lines = requirements_file.read_text().splitlines()
+        filtered = [
+            ln
+            for ln in raw_lines
+            if not any(ln.strip().lower().startswith(pkg) for pkg in _TORCH_PKGS)
+            and ln.strip()
+            and not ln.strip().startswith("#")
+        ]
+
+        if not filtered:
+            logger.info("No non-torch requirements to install, skipping")
+            return
+
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tmp:
+            tmp.write("\n".join(filtered))
+            filtered_req = tmp.name
+
+        try:
+            logger.info(f"Installing requirements from {requirements_file} (torch packages skipped)...")
+            subprocess.check_call(
+                [str(venv_python), "-m", "pip", "install", "--no-build-isolation", "-r", filtered_req]
+            )
+        finally:
+            Path(filtered_req).unlink(missing_ok=True)
         logger.info("Requirements installed successfully")
 
     def _install_package(self, submodule_path: Path) -> None:
