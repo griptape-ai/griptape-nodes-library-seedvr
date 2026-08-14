@@ -187,20 +187,20 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
 
         self.add_parameter(
             Parameter(
-                name="output_height",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                type="int",
-                default_value=720,
-                tooltip="Target output height in pixels.",
-            )
-        )
-        self.add_parameter(
-            Parameter(
                 name="output_width",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 type="int",
                 default_value=1280,
                 tooltip="Target output width in pixels.",
+            )
+        )
+        self.add_parameter(
+            Parameter(
+                name="output_height",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                type="int",
+                default_value=720,
+                tooltip="Target output height in pixels.",
             )
         )
 

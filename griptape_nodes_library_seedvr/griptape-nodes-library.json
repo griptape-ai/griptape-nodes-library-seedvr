@@ -19,7 +19,16 @@
             "pip_dependencies": [
                 "torch",
                 "torchvision",
-                "torchaudio"
+                "torchaudio",
+                "numpy<2",
+                "einops==0.7.0",
+                "omegaconf==2.3.0",
+                "opencv-python==4.9.0.80",
+                "diffusers==0.29.1",
+                "rotary-embedding-torch==0.5.3",
+                "mediapy==1.2.0",
+                "huggingface_hub",
+                "av"
             ],
             "pip_install_flags": [
                 "--preview",
@@ -38,7 +47,7 @@
             },
             {
                 "type": "suggested_worker_mode",
-                "mode": "ORCHESTRATOR"
+                "mode": "WORKER"
             }
         ]
     },
