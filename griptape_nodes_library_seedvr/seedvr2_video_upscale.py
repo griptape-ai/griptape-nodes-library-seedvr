@@ -178,8 +178,11 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         try:
             import cv2
 
-            path = File(video_artifact.value).resolve()
+            path = str(File(video_artifact.value).resolve())
             cap = cv2.VideoCapture(path)
+            if not cap.isOpened():
+                logger.warning("cv2 could not open video for metadata: %s", path)
+                return
             frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             fps = cap.get(cv2.CAP_PROP_FPS)
             cap.release()
@@ -187,8 +190,10 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 self.set_parameter_value("batch_size", ideal_batch_size(frame_count))
             if fps > 0:
                 self.set_parameter_value("output_fps", float(fps))
+            else:
+                logger.warning("cv2 reported fps=0 for %s — output_fps not auto-set", path)
         except Exception:
-            pass
+            logger.exception("Failed to read video metadata for fps/batch_size detection")
 
     def _get_seedvr_root(self) -> Path:
         assert __file__ is not None
@@ -408,34 +413,56 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             runner.config.diffusion.timesteps.sampling.steps = 1
             runner.configure_diffusion()
 
-            # Decode input to bytes
+            # Read input into a (T, C, H, W) float32 tensor in [0, 1].
+            # For images: write to a temp file so torchvision.io.read_image can load it.
+            # For videos: resolve the path directly and use cv2, which handles
+            # fragmented MP4s / end-of-file moov atoms that torchvision's PyAV can't.
             is_image = isinstance(video_artifact, (ImageUrlArtifact, ImageArtifact))
-            suffix = ".png" if is_image else ".mp4"
-            if isinstance(video_artifact, ImageArtifact):
-                input_bytes = video_artifact.value
-            else:
-                input_bytes = File(video_artifact.value).read_bytes()
 
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                tmp.write(input_bytes)
-                tmp_path = tmp.name
-
-            try:
-                from torchvision.io import read_image
-                from torchvision.io.video import read_video
-
-                if is_image:
-                    video_tensor = read_image(tmp_path).unsqueeze(0) / 255.0
-                    input_fps = float(output_fps_param or 24.0)
+            if is_image:
+                if isinstance(video_artifact, ImageArtifact):
+                    input_bytes = video_artifact.value
                 else:
-                    video_tensor, _, info = read_video(tmp_path, output_format="TCHW")
-                    video_tensor = video_tensor / 255.0
-                    input_fps = float(info.get("video_fps", 24.0))
-            finally:
-                os.unlink(tmp_path)
+                    input_bytes = File(video_artifact.value).read_bytes()
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    tmp.write(input_bytes)
+                    tmp_path = tmp.name
+                try:
+                    from torchvision.io import read_image
+
+                    video_tensor = read_image(tmp_path).unsqueeze(0).float() / 255.0
+                finally:
+                    os.unlink(tmp_path)
+                input_fps = float(output_fps_param or 24.0)
+            else:
+                import cv2
+                import numpy as np
+
+                video_path = str(File(video_artifact.value).resolve())
+                cap = cv2.VideoCapture(video_path)
+                if not cap.isOpened():
+                    raise ValueError(f"Cannot open video file: {video_path}")
+                raw_fps = cap.get(cv2.CAP_PROP_FPS)
+                frames = []
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                cap.release()
+                if not frames:
+                    raise ValueError(
+                        "Input video has 0 readable frames — the file may be corrupt "
+                        f"or in an unsupported format: {video_path}"
+                    )
+                video_np = np.stack(frames, axis=0)  # (T, H, W, C) uint8
+                video_tensor = torch.from_numpy(video_np).permute(0, 3, 1, 2).float() / 255.0
+                input_fps = float(output_fps_param or (raw_fps if raw_fps > 0 else 24.0))
 
             original_frame_count = video_tensor.shape[0]
             logger.info("Input: %d frames, fps=%.2f", original_frame_count, input_fps)
+            if original_frame_count == 0:
+                raise ValueError("Input has 0 frames — cannot run inference on an empty video.")
 
             from common.distributed import get_device
             from data.image.transforms.divisible_crop import DivisibleCrop
