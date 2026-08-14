@@ -258,6 +258,55 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             if str(seedvr_root) not in sys.path:
                 sys.path.insert(0, str(seedvr_root))
 
+            # Inject a flash_attn stub before any SeedVR model code is imported.
+            # flash_attn has no Windows wheels so it may not be installed; the stub
+            # implements flash_attn_varlen_func via PyTorch SDPA as a fallback.
+            if "flash_attn" not in sys.modules:
+                try:
+                    import flash_attn  # noqa: F401
+                except ImportError:
+                    import types
+
+                    import torch.nn.functional as F
+
+                    def _flash_attn_varlen_func_sdpa(
+                        q: torch.Tensor,
+                        k: torch.Tensor,
+                        v: torch.Tensor,
+                        cu_seqlens_q: torch.Tensor,
+                        cu_seqlens_k: torch.Tensor,
+                        max_seqlen_q: int,
+                        max_seqlen_k: int,
+                        dropout_p: float = 0.0,
+                        softmax_scale: float | None = None,
+                        causal: bool = False,
+                        **kwargs: object,
+                    ) -> torch.Tensor:
+                        if softmax_scale is None:
+                            softmax_scale = q.shape[-1] ** -0.5
+                        batch_size = len(cu_seqlens_q) - 1
+                        outputs = []
+                        for i in range(batch_size):
+                            qs = int(cu_seqlens_q[i].item())
+                            qe = int(cu_seqlens_q[i + 1].item())
+                            ks = int(cu_seqlens_k[i].item())
+                            ke = int(cu_seqlens_k[i + 1].item())
+                            # (seqlen, nheads, dim) → (1, nheads, seqlen, dim)
+                            qi = q[qs:qe].transpose(0, 1).unsqueeze(0)
+                            ki = k[ks:ke].transpose(0, 1).unsqueeze(0)
+                            vi = v[ks:ke].transpose(0, 1).unsqueeze(0)
+                            out = F.scaled_dot_product_attention(
+                                qi, ki, vi, scale=softmax_scale, is_causal=causal
+                            )
+                            # (1, nheads, seqlen, dim) → (seqlen, nheads, dim)
+                            outputs.append(out.squeeze(0).transpose(0, 1))
+                        return torch.cat(outputs, dim=0)
+
+                    _stub = types.ModuleType("flash_attn")
+                    _stub.flash_attn_varlen_func = _flash_attn_varlen_func_sdpa  # type: ignore[attr-defined]
+                    sys.modules["flash_attn"] = _stub
+                    logger.warning("flash_attn not installed — using PyTorch SDPA fallback")
+
             # torch.distributed requires these env vars even for single-GPU inference
             os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
             os.environ.setdefault("MASTER_PORT", "29500")
