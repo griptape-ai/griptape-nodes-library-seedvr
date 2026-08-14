@@ -13,6 +13,12 @@ class SeedVRLibraryAdvanced(AdvancedNodeLibrary):
     def before_library_nodes_loaded(self, library_data: LibrarySchema, library: Library) -> None:
         logger.info(f"Loading '{library_data.name}' library...")
         submodule_path = self._init_submodule()
+        venv_python = self._get_venv_python_path()
+
+        # Run fast idempotent cleanups on every load — these don't require reinstall.
+        self._clean_phantom_dist_infos(venv_python)
+        self._ensure_requests_deps(venv_python)
+
         if not self._is_installed(submodule_path):
             self._install_from_requirements(submodule_path)
             self._apply_patches()
@@ -128,6 +134,50 @@ class SeedVRLibraryAdvanced(AdvancedNodeLibrary):
         if str(import_root) not in sys.path:
             sys.path.insert(0, str(import_root))
         logger.info(f"Added {import_root} to sys.path")
+
+    def _clean_phantom_dist_infos(self, venv_python: Path) -> None:
+        """Remove stale torch dist-info directories left behind by CUDA version upgrades.
+
+        When uv upgrades torch from e.g. +cu130 to +cu132, it may leave behind the
+        old torch-X.Y.Z+cu130.dist-info directory without a METADATA file.
+        importlib.metadata then picks the wrong entry and returns None, which causes
+        diffusers' is_torch_version() to raise InvalidVersion.
+
+        Only torch-*.dist-info dirs are targeted to stay narrowly safe.
+        """
+        import shutil
+
+        if sys.platform == "win32":
+            site_packages = venv_python.parent.parent / "Lib" / "site-packages"
+        else:
+            ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
+            site_packages = venv_python.parent.parent / "lib" / ver / "site-packages"
+
+        if not site_packages.exists():
+            return
+
+        for dist_info in site_packages.glob("torch-*.dist-info"):
+            if not (dist_info / "METADATA").exists():
+                logger.info("Removing stale torch dist-info (no METADATA): %s", dist_info.name)
+                shutil.rmtree(str(dist_info), ignore_errors=True)
+
+    def _ensure_requests_deps(self, venv_python: Path) -> None:
+        """Ensure requests and its base dependencies are installed.
+
+        pip sometimes misses transitive deps for requests (idna, certifi,
+        charset-normalizer) on Windows, which breaks huggingface_hub and diffusers.
+        This is idempotent — packages already installed are no-ops.
+        """
+        result = subprocess.run(
+            [str(venv_python), "-c", "import idna, certifi, charset_normalizer, urllib3"],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            logger.info("Installing missing requests dependencies (idna, certifi, charset-normalizer, urllib3)...")
+            subprocess.run(
+                [str(venv_python), "-m", "pip", "install", "idna", "certifi", "charset-normalizer", "urllib3"],
+                capture_output=True,
+            )
 
     def _apply_patches(self) -> None:
         """Install supplemental packages not in requirements.txt.
