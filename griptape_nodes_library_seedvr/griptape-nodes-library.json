@@ -56,8 +56,16 @@
             "video/restoration": {
                 "color": "border-green-500",
                 "title": "Video Restoration",
-                "description": "Video and image super-resolution using SeedVR diffusion transformers",
+                "description": "Video super-resolution using SeedVR diffusion transformers",
                 "icon": "Video"
+            }
+        },
+        {
+            "image/restoration": {
+                "color": "border-green-500",
+                "title": "Image Restoration",
+                "description": "Image super-resolution using SeedVR diffusion transformers",
+                "icon": "Image"
             }
         }
     ],
@@ -75,7 +83,7 @@
             "class_name": "SeedVR2ImageUpscale",
             "file_path": "seedvr2_image_upscale.py",
             "metadata": {
-                "category": "video/restoration",
+                "category": "image/restoration",
                 "description": "Upscales and restores a single image using SeedVR2, a one-step diffusion transformer model from ByteDance. Handles model download, caching, and GPU inference automatically.",
                 "display_name": "SeedVR2 Image Upscale"
             }
