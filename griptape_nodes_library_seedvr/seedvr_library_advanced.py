@@ -139,13 +139,16 @@ class SeedVRLibraryAdvanced(AdvancedNodeLibrary):
         venv_python = self._get_venv_python_path()
 
         # --- flash_attn ---
+        # Optional: improves attention performance on Linux/CUDA but has no
+        # Windows wheels and fails to compile with MSVC. Skip gracefully if
+        # it can't be installed — SeedVR2 will fall back to standard attention.
         result = subprocess.run(
             [str(venv_python), "-c", "import flash_attn"],
             capture_output=True,
         )
         if result.returncode != 0:
             logger.info("Installing flash_attn==2.5.9.post1 (requires --no-build-isolation)...")
-            subprocess.check_call(
+            install_result = subprocess.run(
                 [
                     str(venv_python),
                     "-m",
@@ -153,9 +156,17 @@ class SeedVRLibraryAdvanced(AdvancedNodeLibrary):
                     "install",
                     "--no-build-isolation",
                     "flash_attn==2.5.9.post1",
-                ]
+                ],
+                capture_output=True,
+                text=True,
             )
-            logger.info("flash_attn installed successfully")
+            if install_result.returncode == 0:
+                logger.info("flash_attn installed successfully")
+            else:
+                logger.warning(
+                    "flash_attn could not be installed (no pre-built wheel for this platform). "
+                    "SeedVR2 will run without it. On Linux, install flash_attn manually for best performance."
+                )
         else:
             logger.info("flash_attn already installed, skipping")
 

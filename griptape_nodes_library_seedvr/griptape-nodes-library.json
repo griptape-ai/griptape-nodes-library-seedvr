@@ -38,7 +38,7 @@
             },
             {
                 "type": "suggested_worker_mode",
-                "mode": "WORKER"
+                "mode": "ORCHESTRATOR"
             }
         ]
     },
