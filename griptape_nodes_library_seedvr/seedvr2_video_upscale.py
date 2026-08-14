@@ -467,6 +467,25 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                     sys.modules["apex.normalization"] = _apex_norm_stub
                     logger.warning("apex not installed — using pure-PyTorch LayerNorm/RMSNorm fallback")
 
+            # diffusers.models.lora conditionally imports CLIPTextModel from transformers.
+            # transformers is on disk but its utils/ subpackage is missing on Windows
+            # (260-char path limit), so `import transformers` fails with
+            # "No module named 'transformers.utils'".
+            # SeedVR uses none of the LoRA/CLIP features, so we disable the gate before
+            # the DiT model module is dynamically loaded via importlib.import_module.
+            try:
+                import diffusers.utils.import_utils as _diu  # noqa: PLC0415
+
+                if getattr(_diu, "_transformers_available", False):
+                    _diu._transformers_available = False  # type: ignore[attr-defined]
+                    logger.warning(
+                        "diffusers: transformers package found but utils/ is missing "
+                        "(Windows path limit). Disabled transformers gate to prevent "
+                        "import error — SeedVR does not use CLIP/LoRA features."
+                    )
+            except Exception:
+                pass
+
             # torch.distributed requires these env vars even for single-GPU inference
             os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
             os.environ.setdefault("MASTER_PORT", "29500")
