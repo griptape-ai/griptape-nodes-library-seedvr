@@ -47,6 +47,116 @@ def ideal_batch_size(frame_count: int, max_batch_size: int = 21) -> int:
     return snap_to_4n1(limit)
 
 
+def _probe_video(video_path: str) -> tuple[float, int]:
+    """Return (fps, frame_count) for a video file using ffprobe.
+
+    Uses static_ffmpeg for a bundled cross-platform binary; falls back to a
+    system ffprobe if static_ffmpeg is unavailable. Returns (0.0, 0) on failure.
+    """
+    import json
+    import subprocess
+
+    try:
+        import static_ffmpeg.run
+
+        _, ffprobe_bin = static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
+    except Exception:
+        ffprobe_bin = "ffprobe"
+
+    try:
+        result = subprocess.run(
+            [
+                ffprobe_bin,
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
+                "-show_streams",
+                "-select_streams",
+                "v:0",
+                video_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return 0.0, 0
+        stream = json.loads(result.stdout).get("streams", [{}])[0]
+
+        # fps — prefer avg_frame_rate, fall back to r_frame_rate
+        fps = 0.0
+        for key in ("avg_frame_rate", "r_frame_rate"):
+            frac = stream.get(key, "0/0")
+            if "/" in frac:
+                num, den = frac.split("/")
+                if float(den) > 0:
+                    fps = float(num) / float(den)
+                    if fps > 0:
+                        break
+            elif frac:
+                fps = float(frac)
+                if fps > 0:
+                    break
+
+        # frame count — use nb_frames if present, otherwise duration * fps
+        nb_frames = int(stream.get("nb_frames") or 0)
+        if nb_frames <= 0 and fps > 0:
+            duration = float(stream.get("duration") or 0)
+            nb_frames = int(duration * fps)
+
+        return fps, nb_frames
+    except Exception:
+        return 0.0, 0
+
+
+def _decode_video(video_path: str) -> tuple[list, float]:
+    """Decode all frames from a video file. Returns (frames_rgb_list, fps).
+
+    Tries cv2 first (fast, works for standard MP4/H.264). Falls back to
+    PyAV+BytesIO for fragmented/CMAF MP4s that cv2 can't open.
+    """
+    import cv2
+
+    frames: list = []
+    raw_fps = 0.0
+
+    cap = cv2.VideoCapture(video_path)
+    if cap.isOpened():
+        raw_fps = cap.get(cv2.CAP_PROP_FPS)
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        cap.release()
+
+    if frames:
+        return frames, raw_fps
+
+    # cv2 failed (e.g. fragmented/CMAF MP4) — try PyAV via BytesIO which
+    # supports arbitrary seeking and can find the moov atom anywhere in the file.
+    logger.warning("cv2 could not read frames from %s — trying PyAV fallback", video_path)
+    try:
+        import io
+
+        import av
+
+        with open(video_path, "rb") as fh:
+            buf = io.BytesIO(fh.read())
+        container = av.open(buf)
+        video_stream = container.streams.video[0]
+        avg_rate = video_stream.average_rate
+        raw_fps = float(avg_rate) if avg_rate else 0.0
+        for frame in container.decode(video=0):
+            frames.append(frame.to_rgb().to_ndarray())
+        container.close()
+    except Exception as exc:
+        logger.warning("PyAV fallback also failed: %s", exc)
+
+    return frames, raw_fps
+
+
 class SeedVR2VideoUpscale(SuccessFailureNode):
     """Upscale and restore video using SeedVR2 diffusion transformer from ByteDance."""
 
@@ -176,22 +286,13 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         if not isinstance(video_artifact, VideoUrlArtifact):
             return
         try:
-            import cv2
-
-            path = str(File(video_artifact.value).resolve())
-            cap = cv2.VideoCapture(path)
-            if not cap.isOpened():
-                logger.warning("cv2 could not open video for metadata: %s", path)
-                return
-            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            cap.release()
+            fps, frame_count = _probe_video(str(File(video_artifact.value).resolve()))
             if frame_count > 0:
                 self.set_parameter_value("batch_size", ideal_batch_size(frame_count))
             if fps > 0:
                 self.set_parameter_value("output_fps", float(fps))
             else:
-                logger.warning("cv2 reported fps=0 for %s — output_fps not auto-set", path)
+                logger.warning("Could not determine fps from video — output_fps not auto-set")
         except Exception:
             logger.exception("Failed to read video metadata for fps/batch_size detection")
 
@@ -435,21 +536,10 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                     os.unlink(tmp_path)
                 input_fps = float(output_fps_param or 24.0)
             else:
-                import cv2
                 import numpy as np
 
                 video_path = str(File(video_artifact.value).resolve())
-                cap = cv2.VideoCapture(video_path)
-                if not cap.isOpened():
-                    raise ValueError(f"Cannot open video file: {video_path}")
-                raw_fps = cap.get(cv2.CAP_PROP_FPS)
-                frames = []
-                while True:
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-                    frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                cap.release()
+                frames, raw_fps = _decode_video(video_path)
                 if not frames:
                     raise ValueError(
                         "Input video has 0 readable frames — the file may be corrupt "
