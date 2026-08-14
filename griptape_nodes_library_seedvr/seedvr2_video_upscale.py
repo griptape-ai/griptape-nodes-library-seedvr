@@ -268,9 +268,19 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             import torch.distributed as dist
 
             if not dist.is_initialized():
-                from common.distributed import init_torch
-
-                init_torch(cudnn_benchmark=False, timeout=datetime.timedelta(seconds=3600))
+                # init_torch() hardcodes backend="nccl" which is Linux-only.
+                # Use gloo on Windows (available on all platforms) and nccl elsewhere.
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.allow_tf32 = True
+                torch.backends.cudnn.benchmark = False
+                torch.cuda.set_device(0)
+                backend = "nccl" if sys.platform != "win32" else "gloo"
+                dist.init_process_group(
+                    backend=backend,
+                    rank=0,
+                    world_size=1,
+                    timeout=datetime.timedelta(seconds=3600),
+                )
 
             # Load or retrieve cached runner (avoids reloading weights on every execution)
             if model_repo_id not in SeedVR2VideoUpscale._RUNNER_CACHE:
