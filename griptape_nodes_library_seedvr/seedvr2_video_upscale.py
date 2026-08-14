@@ -11,6 +11,7 @@ import torch
 from einops import rearrange
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.huggingface.huggingface_repo_parameter import HuggingFaceRepoParameter
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
@@ -185,21 +186,19 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         )
 
         self.add_parameter(
-            Parameter(
+            ParameterInt(
                 name="output_width",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                type="int",
-                default_value=1280,
                 tooltip="Target output width in pixels.",
+                default_value=1280,
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
         self.add_parameter(
-            Parameter(
+            ParameterInt(
                 name="output_height",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                type="int",
-                default_value=720,
                 tooltip="Target output height in pixels.",
+                default_value=720,
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
 
