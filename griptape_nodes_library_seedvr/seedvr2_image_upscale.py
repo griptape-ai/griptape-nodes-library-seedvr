@@ -13,7 +13,7 @@ from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
-from griptape_nodes.exe_types.param_components.huggingface.huggingface_repo_parameter import HuggingFaceRepoParameter
+from griptape_nodes.traits.options import Options
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.files.file import File
@@ -41,12 +41,16 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
 
         self._seed_param = SeedParameter(self)
 
-        self._model_param = HuggingFaceRepoParameter(
-            self,
-            repo_ids=MODEL_REPO_IDS,
-            parameter_name="model",
+        self.add_parameter(
+            Parameter(
+                name="model",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                type="str",
+                default_value="ByteDance-Seed/SeedVR2-3B",
+                tooltip="SeedVR2 model variant. 3B fits on a 24 GB GPU; 7B needs 40–80 GB VRAM.",
+                traits={Options(choices=["ByteDance-Seed/SeedVR2-3B", "ByteDance-Seed/SeedVR2-7B"])},
+            )
         )
-        self._model_param.add_input_parameters()
 
         self.add_parameter(
             Parameter(
@@ -106,9 +110,6 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
 
     def validate_before_node_run(self) -> list[Exception] | None:
         errors: list[Exception] = []
-        hf_errors = self._model_param.validate_before_node_run()
-        if hf_errors:
-            errors.extend(hf_errors)
         if self.parameter_values.get("input_image") is None:
             errors.append(ValueError("input_image is required"))
         return errors if errors else None
@@ -129,7 +130,7 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
             self._handle_failure_exception(e)
 
     def _do_inference(self) -> None:
-        model_repo_id, _ = self._model_param.get_repo_revision()
+        model_repo_id: str = self.parameter_values.get("model") or "ByteDance-Seed/SeedVR2-3B"
         self._seed_param.preprocess()
         seed = self._seed_param.get_seed()
 
