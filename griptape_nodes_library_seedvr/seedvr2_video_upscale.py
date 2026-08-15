@@ -260,20 +260,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             )
         )
 
-        self.add_parameter(
-            Parameter(
-                name="color_correction",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                type="str",
-                default_value="none",
-                tooltip=(
-                    "Post-processing color correction. "
-                    "Only 'none' supported in v1 — wavelet/lab modes require "
-                    "GPL-licensed color_fix.py which cannot be bundled."
-                ),
-                traits={Options(choices=["none"])},
-            )
-        )
+
 
         self.add_parameter(
             Parameter(
