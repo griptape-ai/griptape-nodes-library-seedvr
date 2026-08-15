@@ -1,6 +1,6 @@
 {
     "name": "Griptape Nodes SeedVR Library",
-    "library_schema_version": "0.10.0",
+    "library_schema_version": "0.5.0",
     "advanced_library_path": "griptape_nodes_library_seedvr/seedvr_library_advanced.py",
     "metadata": {
         "author": "Griptape, Inc.",

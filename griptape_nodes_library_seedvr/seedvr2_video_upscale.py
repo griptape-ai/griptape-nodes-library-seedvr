@@ -13,6 +13,7 @@ from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
+from griptape_nodes.exe_types.param_components.huggingface.huggingface_repo_parameter import HuggingFaceRepoParameter
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
@@ -168,16 +169,12 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         # after_value_set can fire during parameter initialization.
         self._seed_param = SeedParameter(self)
 
-        self.add_parameter(
-            Parameter(
-                name="model",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                type="str",
-                default_value="ByteDance-Seed/SeedVR2-3B",
-                tooltip="SeedVR2 model variant. 3B fits on a 24 GB GPU; 7B needs 40–80 GB VRAM.",
-                traits={Options(choices=["ByteDance-Seed/SeedVR2-3B", "ByteDance-Seed/SeedVR2-7B"])},
-            )
+        self._model_param = HuggingFaceRepoParameter(
+            self,
+            repo_ids=MODEL_REPO_IDS,
+            parameter_name="model",
         )
+        self._model_param.add_input_parameters()
 
         self.add_parameter(
             ParameterVideo(
@@ -302,6 +299,9 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
 
     def validate_before_node_run(self) -> list[Exception] | None:
         errors: list[Exception] = []
+        hf_errors = self._model_param.validate_before_node_run()
+        if hf_errors:
+            errors.extend(hf_errors)
         if self.parameter_values.get("input_video") is None:
             errors.append(ValueError("input_video is required"))
         return errors if errors else None
@@ -342,15 +342,9 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         dit_ckpt = ckpts_dir / ckpt_file
 
         if not dit_ckpt.exists():
-            from huggingface_hub import snapshot_download
-
-            logger.info("Downloading %s to %s ...", model_repo_id, ckpts_dir)
-            snapshot_download(  # type: ignore[call-overload]
-                repo_id=model_repo_id,
-                local_dir=str(ckpts_dir),
-                allow_patterns=["*.pth", "*.safetensors", "*.json", "*.txt"],
-                local_dir_use_symlinks=False,
-                resume_download=True,
+            raise RuntimeError(
+                f"Model checkpoint not found for '{model_repo_id}'.\n"
+                "Please download the model via the Model Manager before running this node."
             )
 
         original_cwd = os.getcwd()
