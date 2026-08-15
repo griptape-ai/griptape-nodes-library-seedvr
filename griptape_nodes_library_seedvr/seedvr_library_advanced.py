@@ -26,9 +26,7 @@ class SeedVRLibraryAdvanced(AdvancedNodeLibrary):
         submodule_dir = library_root / "seedvr"
         if submodule_dir.exists() and any(submodule_dir.iterdir()):
             return submodule_dir
-        subprocess.check_call(
-            ["git", "-C", str(library_root.parent), "submodule", "update", "--init", "--recursive"]
-        )
+        subprocess.check_call(["git", "-C", str(library_root.parent), "submodule", "update", "--init", "--recursive"])
         if not submodule_dir.exists() or not any(submodule_dir.iterdir()):
             raise RuntimeError(f"Submodule init failed: {submodule_dir}")
         logger.info("Submodule initialized")

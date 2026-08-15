@@ -171,6 +171,7 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
         try:
             from huggingface_hub.constants import HF_HUB_CACHE  # noqa: PLC0415
             from pathlib import Path as _Path  # noqa: PLC0415
+
             snapshots = _Path(HF_HUB_CACHE) / ("models--" + repo_id.replace("/", "--")) / "snapshots"
             return snapshots.exists() and any(snapshots.iterdir())
         except Exception:

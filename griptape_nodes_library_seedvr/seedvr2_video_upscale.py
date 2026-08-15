@@ -260,8 +260,6 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             )
         )
 
-
-
         self.add_parameter(
             Parameter(
                 name="output_fps",
@@ -350,6 +348,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         try:
             from huggingface_hub.constants import HF_HUB_CACHE  # noqa: PLC0415
             from pathlib import Path as _Path  # noqa: PLC0415
+
             snapshots = _Path(HF_HUB_CACHE) / ("models--" + repo_id.replace("/", "--")) / "snapshots"
             return snapshots.exists() and any(snapshots.iterdir())
         except Exception:
@@ -647,7 +646,6 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             else:
                 output_height = _output_height_fixed
                 output_width = _output_width_fixed
-
 
             original_frame_count = video_tensor.shape[0]
             logger.info("Input: %d frames, fps=%.2f", original_frame_count, input_fps)
