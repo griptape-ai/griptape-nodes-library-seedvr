@@ -68,6 +68,7 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
                 on_click=self._on_model_manager_click,
                 tooltip="Open Model Manager to download the selected SeedVR2 model",
                 allowed_modes={ParameterMode.PROPERTY},
+                hide=True,
             )
         )
 
@@ -117,15 +118,47 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
         )
         self._output_file.add_parameter()
 
+        self._refresh_model_dropdown()
+
         self._create_status_parameters()
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
         self._seed_param.after_value_set(parameter, value)
+        if parameter.name == "model":
+            self._update_download_button_visibility()
 
     def _get_seedvr_root(self) -> Path:
         assert __file__ is not None
         return Path(__file__).parent / "seedvr"
+
+    def _is_model_downloaded(self, repo_id: str) -> bool:
+        try:
+            from huggingface_hub.constants import HF_HUB_CACHE  # noqa: PLC0415
+            from pathlib import Path as _Path  # noqa: PLC0415
+            snapshots = _Path(HF_HUB_CACHE) / ("models--" + repo_id.replace("/", "--")) / "snapshots"
+            return snapshots.exists() and any(snapshots.iterdir())
+        except Exception:
+            return False
+
+    def _refresh_model_dropdown(self) -> None:
+        data = []
+        for repo_id in MODEL_REPO_IDS:
+            if self._is_model_downloaded(repo_id):
+                data.append({"name": repo_id, "icon": "check-circle", "subtitle": "Downloaded"})
+            else:
+                data.append({"name": repo_id, "icon": "download", "subtitle": "Not downloaded"})
+        param = self.get_parameter_by_name("model")
+        if param is not None:
+            param.update_ui_options({"data": data, "dropdown_row_icons": True, "dropdown_row_subtitles": True})
+        self._update_download_button_visibility()
+
+    def _update_download_button_visibility(self) -> None:
+        model_repo_id = self.parameter_values.get("model") or MODEL_REPO_IDS[0]
+        if self._is_model_downloaded(model_repo_id):
+            self.hide_parameter_by_name("model_download")
+        else:
+            self.show_parameter_by_name("model_download")
 
     def _on_model_manager_click(
         self, _button: Button, button_details: ButtonDetailsMessagePayload
