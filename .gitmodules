@@ -1,0 +1,3 @@
+[submodule "griptape_nodes_library_seedvr/seedvr"]
+	path = griptape_nodes_library_seedvr/seedvr
+	url = https://github.com/ByteDance-Seed/SeedVR

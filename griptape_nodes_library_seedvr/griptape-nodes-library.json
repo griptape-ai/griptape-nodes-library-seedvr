@@ -1,0 +1,97 @@
+{
+    "name": "Griptape Nodes SeedVR Library",
+    "library_schema_version": "0.5.0",
+    "advanced_library_path": "seedvr_library_advanced.py",
+    "metadata": {
+        "author": "Griptape, Inc.",
+        "description": "Video and image super-resolution using SeedVR2 diffusion transformers from ByteDance.",
+        "library_version": "0.1.0",
+        "engine_version": "0.94.0",
+        "tags": [
+            "Griptape",
+            "AI",
+            "Video",
+            "Image",
+            "Restoration",
+            "Upscaling",
+            "Super-Resolution"
+        ],
+        "dependencies": {
+            "pip_dependencies": [
+                "torch",
+                "torchvision",
+                "torchaudio",
+                "numpy<2",
+                "einops==0.7.0",
+                "omegaconf==2.3.0",
+                "opencv-python==4.9.0.80",
+                "diffusers==0.29.1",
+                "rotary-embedding-torch==0.5.3",
+                "mediapy==1.2.0",
+                "huggingface_hub",
+                "av"
+            ],
+            "pip_install_flags": [
+                "--preview",
+                "--torch-backend=auto"
+            ]
+        },
+        "resources": {
+            "required": {
+                "compute": [["cuda"], "has_any"]
+            }
+        },
+        "declarations": [
+            {
+                "type": "worker_mode_compatibility",
+                "compatibility": "COMPATIBLE"
+            },
+            {
+                "type": "suggested_worker_mode",
+                "mode": "WORKER"
+            }
+        ]
+    },
+    "categories": [
+        {
+            "video": {
+                "color": "border-pink-500",
+                "title": "Video",
+                "description": "Video related nodes",
+                "icon": "Video",
+                "group": "create"
+            }
+        },
+        {
+            "image": {
+                "color": "border-purple-500",
+                "title": "Image",
+                "description": "Image related nodes",
+                "icon": "Image",
+                "group": "create"
+            }
+        }
+    ],
+    "nodes": [
+        {
+            "class_name": "SeedVR2VideoUpscale",
+            "file_path": "seedvr2_video_upscale.py",
+            "metadata": {
+                "category": "video",
+                "description": "Upscales and restores a video using SeedVR2, a one-step diffusion transformer model from ByteDance. Handles model download, caching, and GPU inference automatically.",
+                "display_name": "SeedVR2 Video Upscale",
+                "group": "edit"
+            }
+        },
+        {
+            "class_name": "SeedVR2ImageUpscale",
+            "file_path": "seedvr2_image_upscale.py",
+            "metadata": {
+                "category": "image",
+                "description": "Upscales and restores a single image using SeedVR2, a one-step diffusion transformer model from ByteDance. Handles model download, caching, and GPU inference automatically.",
+                "display_name": "SeedVR2 Image Upscale",
+                "group": "edit"
+            }
+        }
+    ]
+}

@@ -360,17 +360,21 @@ video_bytes = File(video_artifact.value).read_bytes()
 
 **Writing media outputs (image, audio, video)**:
 
-Never embed raw media bytes directly in an artifact -- large binaries (~1MB+) will saturate the WebSocket event stream and cause disconnections. Always save to the static file store and emit a URL artifact instead.
+Never embed raw media bytes directly in an artifact -- large binaries (~1MB+) will saturate the WebSocket event stream and cause disconnections. Always save via `ProjectFileParameter` and emit a URL artifact instead.
 
 ```python
-import uuid
 from griptape.artifacts import AudioUrlArtifact  # or ImageUrlArtifact / VideoUrlArtifact
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 
+# In __init__, declare the output file parameter:
+self._output_file = ProjectFileParameter(self, name="output_file", default_filename="output.flac")
+self._output_file.add_parameter()
+
+# In _run_inference, save the bytes and emit the artifact:
 # media_bytes: bytes -- whatever your model produced (audio, image, video)
-filename = f"output_{uuid.uuid4().hex[:8]}.flac"  # use the correct extension
-url = GriptapeNodes.StaticFilesManager().save_static_file(media_bytes, filename)
-self.parameter_output_values["output"] = AudioUrlArtifact(url)  # or ImageUrlArtifact / VideoUrlArtifact
+file_dest = self._output_file.build_file()
+saved = file_dest.write_bytes(media_bytes)
+self.parameter_output_values["output"] = AudioUrlArtifact(saved.location)  # or ImageUrlArtifact / VideoUrlArtifact
 ```
 
 Use `output_type="AudioUrlArtifact"` (or `"ImageUrlArtifact"` / `"VideoUrlArtifact"`) on the output `Parameter`. Never use the non-URL artifact variants (`AudioArtifact`, `ImageArtifact`, `VideoArtifact`) for node outputs.

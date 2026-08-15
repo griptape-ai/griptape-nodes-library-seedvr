@@ -1,0 +1,6 @@
+name: "CodeQL config"
+
+paths-ignore:
+  - "griptape_nodes_library_seedvr/seedvr/**"
+  - "**/*.js"
+  - "**/*.ts"
