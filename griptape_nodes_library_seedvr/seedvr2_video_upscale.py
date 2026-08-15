@@ -10,13 +10,12 @@ from typing import Any
 import torch
 from einops import rearrange
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
+from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
-from griptape_nodes.exe_types.core_types import NodeMessageResult
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
+from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload, OnClickMessageResultPayload
@@ -146,7 +145,7 @@ def _decode_video(video_path: str) -> tuple[list, float]:
 
         with open(video_path, "rb") as fh:
             buf = io.BytesIO(fh.read())
-        container = av.open(buf)
+        container: Any = av.open(buf)
         video_stream = container.streams.video[0]
         avg_rate = video_stream.average_rate
         raw_fps = float(avg_rate) if avg_rate else 0.0
@@ -346,8 +345,9 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
 
     def _is_model_downloaded(self, repo_id: str) -> bool:
         try:
-            from huggingface_hub.constants import HF_HUB_CACHE  # noqa: PLC0415
             from pathlib import Path as _Path  # noqa: PLC0415
+
+            from huggingface_hub.constants import HF_HUB_CACHE  # noqa: PLC0415
 
             snapshots = _Path(HF_HUB_CACHE) / ("models--" + repo_id.replace("/", "--")) / "snapshots"
             return snapshots.exists() and any(snapshots.iterdir())
