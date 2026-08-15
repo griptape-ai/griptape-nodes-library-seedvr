@@ -13,9 +13,12 @@ from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
+from griptape_nodes.exe_types.core_types import NodeMessageResult
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
+from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.files.file import File
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload, OnClickMessageResultPayload
 from griptape_nodes.traits.options import Options
 
 logger = logging.getLogger("seedvr_library")
@@ -52,6 +55,19 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
                     "3B is faster; 7B produces higher quality results."
                 ),
                 traits={Options(choices=MODEL_REPO_IDS)},
+            )
+        )
+
+        self.add_parameter(
+            ParameterButton(
+                name="model_download",
+                label="Open Model Manager to Download",
+                icon="download",
+                variant="secondary",
+                full_width=True,
+                on_click=self._on_model_manager_click,
+                tooltip="Open Model Manager to download the selected SeedVR2 model",
+                allowed_modes={ParameterMode.PROPERTY},
             )
         )
 
@@ -110,6 +126,20 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
     def _get_seedvr_root(self) -> Path:
         assert __file__ is not None
         return Path(__file__).parent / "seedvr"
+
+    def _on_model_manager_click(
+        self, _button: Button, button_details: ButtonDetailsMessagePayload
+    ) -> NodeMessageResult:
+        model_repo_id = self.parameter_values.get("model") or MODEL_REPO_IDS[0]
+        return NodeMessageResult(
+            success=True,
+            details="Opening Model Manager",
+            response=OnClickMessageResultPayload(
+                button_details=button_details,
+                href=f"#model-management?search={model_repo_id}",
+            ),
+            altered_workflow_state=False,
+        )
 
     def validate_before_node_run(self) -> list[Exception] | None:
         errors: list[Exception] = []
