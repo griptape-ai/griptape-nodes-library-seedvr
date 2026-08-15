@@ -1,7 +1,7 @@
 {
     "name": "Griptape Nodes SeedVR Library",
     "library_schema_version": "0.5.0",
-    "advanced_library_path": "griptape_nodes_library_seedvr/seedvr_library_advanced.py",
+    "advanced_library_path": "seedvr_library_advanced.py",
     "metadata": {
         "author": "Griptape, Inc.",
         "description": "Video and image super-resolution using SeedVR2 diffusion transformers from ByteDance.",
@@ -75,7 +75,7 @@
     "nodes": [
         {
             "class_name": "SeedVR2VideoUpscale",
-            "file_path": "griptape_nodes_library_seedvr/seedvr2_video_upscale.py",
+            "file_path": "seedvr2_video_upscale.py",
             "metadata": {
                 "category": "video",
                 "description": "Upscales and restores a video using SeedVR2, a one-step diffusion transformer model from ByteDance. Handles model download, caching, and GPU inference automatically.",
@@ -85,7 +85,7 @@
         },
         {
             "class_name": "SeedVR2ImageUpscale",
-            "file_path": "griptape_nodes_library_seedvr/seedvr2_image_upscale.py",
+            "file_path": "seedvr2_image_upscale.py",
             "metadata": {
                 "category": "image",
                 "description": "Upscales and restores a single image using SeedVR2, a one-step diffusion transformer model from ByteDance. Handles model download, caching, and GPU inference automatically.",
