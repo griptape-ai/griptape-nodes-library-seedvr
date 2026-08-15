@@ -6,7 +6,7 @@
         "author": "Griptape, Inc.",
         "description": "Video and image super-resolution using SeedVR2 diffusion transformers from ByteDance.",
         "library_version": "0.1.0",
-        "engine_version": "0.97.0",
+        "engine_version": "0.94.0",
         "tags": [
             "Griptape",
             "AI",
