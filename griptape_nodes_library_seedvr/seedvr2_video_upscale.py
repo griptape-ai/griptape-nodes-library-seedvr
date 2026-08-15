@@ -208,11 +208,32 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         )
 
         self.add_parameter(
+            Parameter(
+                name="resize_mode",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                type="str",
+                default_value="scale",
+                tooltip="How to specify the output size. Scale multiplies input dimensions; Dimensions sets exact pixels.",
+                traits={Options(choices=["scale", "dimensions"])},
+            )
+        )
+        self.add_parameter(
+            Parameter(
+                name="scale",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                type="str",
+                default_value="2x",
+                tooltip="Upscale multiplier applied to the input video dimensions.",
+                traits={Options(choices=["1.5x", "2x", "3x", "4x"])},
+            )
+        )
+        self.add_parameter(
             ParameterInt(
                 name="output_width",
                 tooltip="Target output width in pixels.",
                 default_value=1280,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                hide=True,
             )
         )
         self.add_parameter(
@@ -221,6 +242,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 tooltip="Target output height in pixels.",
                 default_value=720,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                hide=True,
             )
         )
 
@@ -291,6 +313,8 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         self._seed_param.after_value_set(parameter, value)
         if parameter.name == "model":
             self._update_download_button_visibility()
+        if parameter.name == "resize_mode":
+            self._update_resize_mode_visibility()
         if parameter.name == "input_video" and value is not None:
             self._update_params_from_video(value)
 
@@ -323,6 +347,17 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
     def _get_seedvr_root(self) -> Path:
         assert __file__ is not None
         return Path(__file__).parent / "seedvr"
+
+    def _update_resize_mode_visibility(self) -> None:
+        mode = self.parameter_values.get("resize_mode") or "scale"
+        if mode == "scale":
+            self.show_parameter_by_name("scale")
+            self.hide_parameter_by_name("output_width")
+            self.hide_parameter_by_name("output_height")
+        else:
+            self.hide_parameter_by_name("scale")
+            self.show_parameter_by_name("output_width")
+            self.show_parameter_by_name("output_height")
 
     def _is_model_downloaded(self, repo_id: str) -> bool:
         try:
@@ -403,8 +438,11 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         self._seed_param.preprocess()
         seed = self._seed_param.get_seed()
 
-        output_height: int = self.parameter_values.get("output_height") or 720
-        output_width: int = self.parameter_values.get("output_width") or 1280
+        resize_mode = self.parameter_values.get("resize_mode") or "scale"
+        # Dimensions are resolved after decoding so we have input shape for scale mode
+        _output_height_fixed: int = self.parameter_values.get("output_height") or 720
+        _output_width_fixed: int = self.parameter_values.get("output_width") or 1280
+        _scale_str: str = self.parameter_values.get("scale") or "2x"
         snap_to_4n1(self.parameter_values.get("batch_size") or 1)
         output_fps_param: float | None = self.parameter_values.get("output_fps")
 
@@ -613,6 +651,16 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             video_np = np.stack(frames, axis=0)  # (T, H, W, C) uint8
             video_tensor = torch.from_numpy(video_np).permute(0, 3, 1, 2).float() / 255.0
             input_fps = float(output_fps_param or (raw_fps if raw_fps > 0 else 24.0))
+
+            if resize_mode == "scale":
+                scale_factor = float(_scale_str.rstrip("x"))
+                input_h, input_w = video_np.shape[1], video_np.shape[2]
+                output_height = int(input_h * scale_factor)
+                output_width = int(input_w * scale_factor)
+            else:
+                output_height = _output_height_fixed
+                output_width = _output_width_fixed
+
 
             original_frame_count = video_tensor.shape[0]
             logger.info("Input: %d frames, fps=%.2f", original_frame_count, input_fps)

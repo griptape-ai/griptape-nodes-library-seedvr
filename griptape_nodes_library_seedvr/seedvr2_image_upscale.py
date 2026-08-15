@@ -83,11 +83,32 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
         )
 
         self.add_parameter(
+            Parameter(
+                name="resize_mode",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                type="str",
+                default_value="scale",
+                tooltip="Scale multiplies input dimensions; Dimensions sets exact pixels.",
+                traits={Options(choices=["scale", "dimensions"])},
+            )
+        )
+        self.add_parameter(
+            Parameter(
+                name="scale",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                type="str",
+                default_value="2x",
+                tooltip="Upscale multiplier applied to the input image dimensions.",
+                traits={Options(choices=["1.5x", "2x", "3x", "4x"])},
+            )
+        )
+        self.add_parameter(
             ParameterInt(
                 name="output_width",
                 tooltip="Target output width in pixels.",
                 default_value=1280,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                hide=True,
             )
         )
         self.add_parameter(
@@ -96,6 +117,7 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
                 tooltip="Target output height in pixels.",
                 default_value=720,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                hide=True,
             )
         )
 
@@ -127,10 +149,23 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
         self._seed_param.after_value_set(parameter, value)
         if parameter.name == "model":
             self._update_download_button_visibility()
+        if parameter.name == "resize_mode":
+            self._update_resize_mode_visibility()
 
     def _get_seedvr_root(self) -> Path:
         assert __file__ is not None
         return Path(__file__).parent / "seedvr"
+
+    def _update_resize_mode_visibility(self) -> None:
+        mode = self.parameter_values.get("resize_mode") or "scale"
+        if mode == "scale":
+            self.show_parameter_by_name("scale")
+            self.hide_parameter_by_name("output_width")
+            self.hide_parameter_by_name("output_height")
+        else:
+            self.hide_parameter_by_name("scale")
+            self.show_parameter_by_name("output_width")
+            self.show_parameter_by_name("output_height")
 
     def _is_model_downloaded(self, repo_id: str) -> bool:
         try:
@@ -211,8 +246,10 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
         self._seed_param.preprocess()
         seed = self._seed_param.get_seed()
 
-        output_height: int = self.parameter_values.get("output_height") or 720
-        output_width: int = self.parameter_values.get("output_width") or 1280
+        resize_mode = self.parameter_values.get("resize_mode") or "scale"
+        _output_height_fixed: int = self.parameter_values.get("output_height") or 720
+        _output_width_fixed: int = self.parameter_values.get("output_width") or 1280
+        _scale_str: str = self.parameter_values.get("scale") or "2x"
 
         image_artifact = self.parameter_values.get("input_image")
         if not isinstance(image_artifact, (ImageUrlArtifact, ImageArtifact)):
@@ -391,6 +428,14 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
                 video_tensor = read_image(tmp_path).unsqueeze(0).float() / 255.0
             finally:
                 os.unlink(tmp_path)
+
+            if resize_mode == "scale":
+                scale_factor = float(_scale_str.rstrip("x"))
+                output_height = int(video_tensor.shape[2] * scale_factor)
+                output_width = int(video_tensor.shape[3] * scale_factor)
+            else:
+                output_height = _output_height_fixed
+                output_width = _output_width_fixed
 
             from common.distributed import get_device
             from data.image.transforms.divisible_crop import DivisibleCrop
