@@ -12,6 +12,7 @@ from einops import rearrange
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
+from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
@@ -140,6 +141,9 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
         self._output_file.add_parameter()
 
         self._refresh_model_dropdown()
+
+        self.progress_bar_component = ProgressBarComponent(self)
+        self.progress_bar_component.add_property_parameters()
 
         self._create_status_parameters()
 
@@ -469,6 +473,8 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
                 "texts_neg": [text_neg],
             }
 
+            self.progress_bar_component.initialize(1)
+
             runner.vae.to(device)
             runner.dit.to("cpu")
             cond_latents = runner.vae_encode([cond_tensor])
@@ -515,6 +521,7 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
             ]
             del video_tensors
             runner.dit.to("cpu")
+            self.progress_bar_component.increment()
 
             # Take only the first (and only) output frame
             sample = samples[0][:1].to("cpu")

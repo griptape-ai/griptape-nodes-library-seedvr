@@ -13,6 +13,7 @@ from einops import rearrange
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
+from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
@@ -345,6 +346,9 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         self._output_file.add_parameter()
 
         self._refresh_model_dropdown()
+
+        self.progress_bar_component = ProgressBarComponent(self)
+        self.progress_bar_component.add_property_parameters()
 
         # Status parameters MUST be last
         self._create_status_parameters()
@@ -752,6 +756,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 overlap,
                 step,
             )
+            self.progress_bar_component.initialize(len(windows))
 
             # Output accumulators on CPU — avoids holding VRAM during accumulation
             output_acc: torch.Tensor | None = None
@@ -844,6 +849,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
 
                 del sample, samples
                 logger.info("Window %d/%d complete", win_idx + 1, len(windows))
+                self.progress_bar_component.increment()
 
             assert output_acc is not None and weight_acc is not None
 
