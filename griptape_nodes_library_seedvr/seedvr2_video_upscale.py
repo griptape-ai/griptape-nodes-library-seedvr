@@ -11,7 +11,7 @@ from typing import Any
 import torch
 from einops import rearrange
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
@@ -19,7 +19,6 @@ from griptape_nodes.exe_types.param_types.parameter_button import ParameterButto
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
-from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload, OnClickMessageResultPayload
 from griptape_nodes.traits.options import Options
 
 logger = logging.getLogger(__name__)
@@ -220,21 +219,18 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 type="str",
                 default_value=MODEL_REPO_IDS[0],
-                tooltip=(
-                    "SeedVR2 model to use. Download models via the Model Manager before running. "
-                    "3B is faster; 7B produces higher quality results."
-                ),
+                tooltip="SeedVR2 model to use. ByteDance-Seed/SeedVR2-3B is faster; ByteDance-Seed/SeedVR2-7B produces higher quality results. Use the Model Manager to download SeedVR2 models before running.",
                 traits={Options(choices=MODEL_REPO_IDS)},
             )
         )
         self.add_parameter(
             ParameterButton(
-                name="model_download",
-                label="Open Model Manager to Download",
+                name="model_manager",
+                label="Open Model Manager",
                 icon="download",
                 variant="secondary",
                 full_width=True,
-                on_click=self._on_model_manager_click,
+                href="#model-management",
                 tooltip="Open Model Manager to download the selected SeedVR2 model",
                 allowed_modes={ParameterMode.PROPERTY},
                 hide=True,
@@ -340,12 +336,8 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
         self._seed_param.after_value_set(parameter, value)
-        if parameter.name == "model":
-            self._update_download_button_visibility()
         if parameter.name == "resize_mode":
             self._update_resize_mode_visibility()
-        if parameter.name == "input_video" and value is not None:
-            self._update_params_from_video(value)
 
     def after_incoming_connection(
         self,
@@ -412,28 +404,6 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         param = self.get_parameter_by_name("model")
         if param is not None:
             param.update_ui_options({"data": data, "dropdown_row_icons": True, "dropdown_row_subtitles": True})
-        self._update_download_button_visibility()
-
-    def _update_download_button_visibility(self) -> None:
-        model_repo_id = self.parameter_values.get("model") or MODEL_REPO_IDS[0]
-        if self._is_model_downloaded(model_repo_id):
-            self.hide_parameter_by_name("model_download")
-        else:
-            self.show_parameter_by_name("model_download")
-
-    def _on_model_manager_click(
-        self, _button: Button, button_details: ButtonDetailsMessagePayload
-    ) -> NodeMessageResult:
-        model_repo_id = self.parameter_values.get("model") or MODEL_REPO_IDS[0]
-        return NodeMessageResult(
-            success=True,
-            details="Opening Model Manager",
-            response=OnClickMessageResultPayload(
-                button_details=button_details,
-                href=f"#model-management?search={model_repo_id}",
-            ),
-            altered_workflow_state=False,
-        )
 
     def validate_before_node_run(self) -> list[Exception] | None:
         errors: list[Exception] = []

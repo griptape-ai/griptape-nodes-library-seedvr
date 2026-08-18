@@ -64,7 +64,14 @@ Upscales a single image using the same SeedVR2 diffusion backbone as the video n
 | `ByteDance-Seed/SeedVR2-3B` | ~24 GB | Single RTX 4090; recommended starting point |
 | `ByteDance-Seed/SeedVR2-7B` | ~40–80 GB | Higher quality; requires A100 / H100 class GPU |
 
-Models are downloaded from HuggingFace through the **Model Manager** inside Griptape Nodes. Both nodes show a **Download in Model Manager** button when the selected model is not yet cached locally — click it to open the Model Manager directly. Once downloaded, the button disappears and the model name gains a checkmark in the dropdown.
+Models must be downloaded before the nodes can run. Use the **Model Manager** built into Griptape Nodes:
+
+1. Open **Manage → Model Management**
+2. In the search box, type `ByteDance-Seed/SeedVR2`
+3. Select the model you want (`ByteDance-Seed/SeedVR2-3B` or `ByteDance-Seed/SeedVR2-7B`) from the autocomplete list
+4. Click **Download**
+![Model Manager search showing ByteDance-Seed/SeedVR2 autocomplete results](images/model-manager-search.png)
+![Model Manager with ByteDance-Seed/SeedVR2-3B selected and Download button](images/model_management_download.png)
 
 > **Storage**: HuggingFace caches models at `~/.cache/huggingface/hub` (Linux/macOS) or `%USERPROFILE%\.cache\huggingface\hub` (Windows). Set the `HF_HOME` environment variable before launching the engine to store them elsewhere.
 
