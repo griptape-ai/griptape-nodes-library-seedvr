@@ -13,7 +13,6 @@ from einops import rearrange
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
-from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
@@ -23,7 +22,7 @@ from griptape_nodes.files.file import File
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload, OnClickMessageResultPayload
 from griptape_nodes.traits.options import Options
 
-logger = logging.getLogger("seedvr_library")
+logger = logging.getLogger(__name__)
 
 MODEL_REPO_IDS = [
     "ByteDance-Seed/SeedVR2-3B",
@@ -228,7 +227,6 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 traits={Options(choices=MODEL_REPO_IDS)},
             )
         )
-
         self.add_parameter(
             ParameterButton(
                 name="model_download",
@@ -295,10 +293,9 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 name="batch_size",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 type="int",
-                default_value=1,
+                default_value=13,
                 tooltip=(
                     "Frames processed per diffusion step — must be 4n+1 (1, 5, 9, 13, ...). "
-                    "Auto-set from video frame count when input is connected. "
                     "Reduce if VRAM runs out; increase for better temporal consistency."
                 ),
             )
@@ -314,16 +311,6 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 ),
                 default_value=2,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
-        )
-
-        self.add_parameter(
-            Parameter(
-                name="output_fps",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                type="float",
-                default_value=None,
-                tooltip="Output video FPS. If unset, preserves the input video's original FPS.",
             )
         )
 
@@ -347,9 +334,6 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
 
         self._refresh_model_dropdown()
 
-        self.progress_bar_component = ProgressBarComponent(self)
-        self.progress_bar_component.add_property_parameters()
-
         # Status parameters MUST be last
         self._create_status_parameters()
 
@@ -369,23 +353,26 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         source_parameter: Parameter,
         target_parameter: Parameter,
     ) -> None:
-        super().after_incoming_connection(source_node, source_parameter, target_parameter)
         if target_parameter.name == "input_video":
-            value = self.parameter_values.get("input_video")
+            value = source_node.get_parameter_value(source_parameter.name)
+            logger.info("input_video connected: type=%s", type(value).__name__)
             if value is not None:
                 self._update_params_from_video(value)
+        super().after_incoming_connection(source_node, source_parameter, target_parameter)
 
     def _update_params_from_video(self, video_artifact: Any) -> None:
         if not isinstance(video_artifact, VideoUrlArtifact):
+            logger.warning(
+                "input_video: expected VideoUrlArtifact, got %s — skipping auto-detect", type(video_artifact).__name__
+            )
             return
         try:
             fps, frame_count = _probe_video(str(File(video_artifact.value).resolve()))
+            logger.info("Video probe: %.2f fps, %d frames", fps, frame_count)
             if frame_count > 0:
                 self.set_parameter_value("batch_size", ideal_batch_size(frame_count))
-            if fps > 0:
-                self.set_parameter_value("output_fps", float(fps))
-            else:
-                logger.warning("Could not determine fps from video — output_fps not auto-set")
+            if fps <= 0:
+                logger.warning("Could not determine fps from video probe")
         except Exception:
             logger.exception("Failed to read video metadata for fps/batch_size detection")
 
@@ -467,11 +454,9 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
 
     def process(self) -> AsyncResult[None]:
         self._clear_execution_status()
-        yield lambda: self._run_inference()
-
-    def _run_inference(self) -> None:
         try:
-            self._do_inference()
+            yield lambda: self._do_inference()
+            self._set_status_results(was_successful=True, result_details="SUCCESS: Video upscaled successfully")
         except Exception as e:
             logger.exception("SeedVR2 inference failed")
             self._set_status_results(
@@ -482,6 +467,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
 
     def _do_inference(self) -> None:  # noqa: PLR0912, PLR0915
         model_repo_id: str = self.parameter_values.get("model") or MODEL_REPO_IDS[0]
+        logger.info("Starting inference with model=%s", model_repo_id)
         self._seed_param.preprocess()
         seed = self._seed_param.get_seed()
 
@@ -491,7 +477,6 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         _scale_str: str = self.parameter_values.get("scale") or "2x"
         batch_n = snap_to_4n1(self.parameter_values.get("batch_size") or 1)
         overlap_param = int(self.parameter_values.get("temporal_overlap") or 2)
-        output_fps_param: float | None = self.parameter_values.get("output_fps")
 
         video_artifact = self.parameter_values.get("input_video")
         if not isinstance(video_artifact, VideoUrlArtifact):
@@ -697,7 +682,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 )
 
             total_frames = len(frames)
-            input_fps = float(output_fps_param or (raw_fps if raw_fps > 0 else 24.0))
+            input_fps = float(raw_fps if raw_fps > 0 else 24.0)
 
             # Compute output dimensions from first frame shape
             h0, w0 = frames[0].shape[0], frames[0].shape[1]
@@ -756,7 +741,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 overlap,
                 step,
             )
-            self.progress_bar_component.initialize(len(windows))
+            n_windows = len(windows)
 
             # Output accumulators on CPU — avoids holding VRAM during accumulation
             output_acc: torch.Tensor | None = None
@@ -834,8 +819,9 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 # Initialize accumulators once we know actual output H/W
                 if output_acc is None:
                     out_c, out_h, out_w = sample.shape[1], sample.shape[2], sample.shape[3]
-                    output_acc = torch.zeros(total_frames, out_c, out_h, out_w)
-                    weight_acc = torch.zeros(total_frames, 1, 1, 1)
+                    # float16 halves RAM vs float32; blending precision is sufficient
+                    output_acc = torch.zeros(total_frames, out_c, out_h, out_w, dtype=torch.float16)
+                    weight_acc = torch.zeros(total_frames, 1, 1, 1, dtype=torch.float16)
 
                 assert output_acc is not None
                 assert weight_acc is not None
@@ -848,17 +834,19 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 weight_acc[win_start : win_start + n_win] += weights
 
                 del sample, samples
-                logger.info("Window %d/%d complete", win_idx + 1, len(windows))
-                self.progress_bar_component.increment()
+                logger.info("Window %d/%d complete", win_idx + 1, n_windows)
 
             assert output_acc is not None and weight_acc is not None
 
-            # Normalize blended output and convert to uint8 numpy
-            final = output_acc / weight_acc.clamp(min=1e-6)  # (T, C, H, W) in [-1, 1]
-            sample_hwc = rearrange(final, "t c h w -> t h w c")
+            # Normalize in-place — avoids a second full-size tensor copy at large scales
+            assert output_acc is not None and weight_acc is not None
+            output_acc /= weight_acc.clamp(min=1e-4)
+            del weight_acc
+            sample_hwc = rearrange(output_acc, "t c h w -> t h w c")
             sample_np = sample_hwc.clip(-1, 1).mul_(0.5).add_(0.5).mul_(255).round_().to(torch.uint8).numpy()
+            del sample_hwc, output_acc
 
-            out_fps = output_fps_param if output_fps_param is not None else input_fps
+            out_fps = input_fps
 
             import mediapy
 
@@ -874,7 +862,6 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             file_dest = self._output_file.build_file()
             saved = file_dest.write_bytes(video_bytes)
             self.parameter_output_values["output_video"] = VideoUrlArtifact(saved.location)
-            self._set_status_results(was_successful=True, result_details="SUCCESS: Video upscaled successfully")
 
             _clear_vram()
 

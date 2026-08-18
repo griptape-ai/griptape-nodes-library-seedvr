@@ -12,7 +12,6 @@ from einops import rearrange
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
-from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
@@ -21,7 +20,7 @@ from griptape_nodes.files.file import File
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload, OnClickMessageResultPayload
 from griptape_nodes.traits.options import Options
 
-logger = logging.getLogger("seedvr_library")
+logger = logging.getLogger(__name__)
 
 MODEL_REPO_IDS = [
     "ByteDance-Seed/SeedVR2-3B",
@@ -142,9 +141,6 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
 
         self._refresh_model_dropdown()
 
-        self.progress_bar_component = ProgressBarComponent(self)
-        self.progress_bar_component.add_property_parameters()
-
         self._create_status_parameters()
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
@@ -233,11 +229,9 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
 
     def process(self) -> AsyncResult[None]:
         self._clear_execution_status()
-        yield lambda: self._run_inference()
-
-    def _run_inference(self) -> None:
         try:
-            self._do_inference()
+            yield lambda: self._do_inference()
+            self._set_status_results(was_successful=True, result_details="SUCCESS: Image upscaled successfully")
         except Exception as e:
             logger.exception("SeedVR2 image inference failed")
             self._set_status_results(
@@ -473,8 +467,6 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
                 "texts_neg": [text_neg],
             }
 
-            self.progress_bar_component.initialize(1)
-
             runner.vae.to(device)
             runner.dit.to("cpu")
             cond_latents = runner.vae_encode([cond_tensor])
@@ -521,7 +513,6 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
             ]
             del video_tensors
             runner.dit.to("cpu")
-            self.progress_bar_component.increment()
 
             # Take only the first (and only) output frame
             sample = samples[0][:1].to("cpu")
@@ -544,7 +535,6 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
             file_dest = self._output_file.build_file()
             saved = file_dest.write_bytes(image_bytes)
             self.parameter_output_values["output_image"] = ImageUrlArtifact(saved.location)
-            self._set_status_results(was_successful=True, result_details="SUCCESS: Image upscaled successfully")
 
             gc.collect()
             torch.cuda.empty_cache()

@@ -6,7 +6,7 @@ from pathlib import Path
 from griptape_nodes.node_library.advanced_node_library import AdvancedNodeLibrary
 from griptape_nodes.node_library.library_registry import Library, LibrarySchema
 
-logger = logging.getLogger("seedvr_library")
+logger = logging.getLogger(__name__)
 
 
 class SeedVRLibraryAdvanced(AdvancedNodeLibrary):
