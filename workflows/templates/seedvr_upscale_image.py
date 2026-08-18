@@ -8,7 +8,7 @@
 # node_libraries_referenced = [["Griptape Nodes Library", "0.81.0"], ["Griptape Nodes SeedVR Library", "0.1.0"]]
 # node_types_used = [["Griptape Nodes Library", "CompareImages"], ["Griptape Nodes Library", "LoadImage"], ["Griptape Nodes SeedVR Library", "SeedVR2ImageUpscale"]]
 # description = "Demonstrates the use of SeedVR2 Image Upscaling"
-# image = "https://raw.githubusercontent.com/griptape-ai/griptape-nodes-library-seedvr/build_initial_version/workflows/templates/seedvr_upscale_image.webp"
+# image = "https://raw.githubusercontent.com/griptape-ai/griptape-nodes-library-seedvr/main/workflows/templates/seedvr_upscale_image.webp"
 # is_griptape_provided = true
 # is_template = true
 # creation_date = 2026-08-18T21:31:06.871642Z
