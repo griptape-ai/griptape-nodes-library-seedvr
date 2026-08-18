@@ -6,6 +6,17 @@ SeedVR2 (ICLR 2026) upscales footage in a single diffusion step via adversarial 
 
 ---
 
+## Workflow Templates
+
+This library includes a ready-to-run workflow template you can load directly in Griptape Nodes via **File → Open** and then choose the appropriate template.
+
+### SeedVR2 Image Upscale
+
+Loads a sample low-resolution image, upscales it 3× with the SeedVR2-3B model, and displays the before/after side-by-side using a Compare Images node.
+![SeedVR2 Image Upscale workflow template](images/image_upscale_template.png)
+
+---
+
 ## Why SeedVR2?
 
 Most upscalers either smear detail (interpolation) or require dozens of denoising steps (standard diffusion). SeedVR2 does neither. It combines the quality of a diffusion model with the speed of a single-step inference, which means you can upscale a short clip in seconds and a full scene in minutes rather than hours.
