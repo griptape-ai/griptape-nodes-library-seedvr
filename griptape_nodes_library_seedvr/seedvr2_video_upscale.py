@@ -1,6 +1,7 @@
 import datetime
 import gc
 import logging
+import math
 import os
 import sys
 import tempfile
@@ -46,6 +47,49 @@ def ideal_batch_size(frame_count: int, max_batch_size: int = 21) -> int:
     ceiling = snap_to_4n1(max_batch_size)
     limit = min(frame_count, ceiling)
     return snap_to_4n1(limit)
+
+
+def _make_windows(total: int, batch_size: int, step: int) -> list[tuple[int, int]]:
+    """Split total frames into overlapping [start, end) windows."""
+    if total <= batch_size:
+        return [(0, total)]
+    windows: list[tuple[int, int]] = []
+    start = 0
+    while start < total:
+        end = min(start + batch_size, total)
+        windows.append((start, end))
+        if end >= total:
+            break
+        start += step
+    return windows
+
+
+def _compute_hann_weights(n: int, overlap: int, is_first: bool, is_last: bool) -> torch.Tensor:
+    """Per-frame Hann blending weights for temporal overlap between batches.
+
+    Frames inside the overlap zone at the start/end of a window fade in/out
+    with a raised-cosine (Hann) curve so that adjacent windows sum to 1.0.
+    """
+    weights = torch.ones(n)
+    if overlap <= 0 or n <= 1:
+        return weights
+    fade = min(overlap, n // 2)
+    if not is_first:
+        for i in range(fade):
+            t = i / fade
+            weights[i] = 0.5 - 0.5 * math.cos(math.pi * t)
+    if not is_last:
+        for i in range(fade):
+            idx = n - 1 - i
+            t = i / fade
+            weights[idx] = min(weights[idx].item(), 0.5 - 0.5 * math.cos(math.pi * t))
+    return weights
+
+
+def _clear_vram() -> None:
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def _probe_video(video_path: str) -> tuple[float, int]:
@@ -252,10 +296,23 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 type="int",
                 default_value=1,
                 tooltip=(
-                    "Frames per diffusion step — must be 4n+1 (1, 5, 9, 13, ...). "
+                    "Frames processed per diffusion step — must be 4n+1 (1, 5, 9, 13, ...). "
                     "Auto-set from video frame count when input is connected. "
                     "Reduce if VRAM runs out; increase for better temporal consistency."
                 ),
+            )
+        )
+
+        self.add_parameter(
+            ParameterInt(
+                name="temporal_overlap",
+                tooltip=(
+                    "Frames of overlap between adjacent batches. "
+                    "Overlapping frames are blended with a Hann (cosine) window to hide batch seams. "
+                    "0 disables blending. Must be less than batch_size."
+                ),
+                default_value=2,
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
 
@@ -419,17 +476,17 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             )
             self._handle_failure_exception(e)
 
-    def _do_inference(self) -> None:
+    def _do_inference(self) -> None:  # noqa: PLR0912, PLR0915
         model_repo_id: str = self.parameter_values.get("model") or MODEL_REPO_IDS[0]
         self._seed_param.preprocess()
         seed = self._seed_param.get_seed()
 
         resize_mode = self.parameter_values.get("resize_mode") or "scale"
-        # Dimensions are resolved after decoding so we have input shape for scale mode
         _output_height_fixed: int = self.parameter_values.get("output_height") or 720
         _output_width_fixed: int = self.parameter_values.get("output_width") or 1280
         _scale_str: str = self.parameter_values.get("scale") or "2x"
-        snap_to_4n1(self.parameter_values.get("batch_size") or 1)
+        batch_n = snap_to_4n1(self.parameter_values.get("batch_size") or 1)
+        overlap_param = int(self.parameter_values.get("temporal_overlap") or 2)
         output_fps_param: float | None = self.parameter_values.get("output_fps")
 
         video_artifact = self.parameter_values.get("input_video")
@@ -634,25 +691,27 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                     "Input video has 0 readable frames — the file may be corrupt "
                     f"or in an unsupported format: {video_path}"
                 )
-            video_np = np.stack(frames, axis=0)  # (T, H, W, C) uint8
-            video_tensor = torch.from_numpy(video_np).permute(0, 3, 1, 2).float() / 255.0
+
+            total_frames = len(frames)
             input_fps = float(output_fps_param or (raw_fps if raw_fps > 0 else 24.0))
 
+            # Compute output dimensions from first frame shape
+            h0, w0 = frames[0].shape[0], frames[0].shape[1]
             if resize_mode == "scale":
                 scale_factor = float(_scale_str.rstrip("x"))
-                input_h, input_w = video_np.shape[1], video_np.shape[2]
-                output_height = int(input_h * scale_factor)
-                output_width = int(input_w * scale_factor)
+                output_height = int(h0 * scale_factor)
+                output_width = int(w0 * scale_factor)
             else:
                 output_height = _output_height_fixed
                 output_width = _output_width_fixed
 
-            original_frame_count = video_tensor.shape[0]
-            logger.info("Input: %d frames, fps=%.2f", original_frame_count, input_fps)
-            if original_frame_count == 0:
-                raise ValueError("Input has 0 frames — cannot run inference on an empty video.")
+            logger.info(
+                "Input: %d frames at %.2f fps → output %dx%d", total_frames, input_fps, output_width, output_height
+            )
 
             from common.distributed import get_device
+            from common.distributed.ops import sync_data
+            from common.seed import set_seed
             from data.image.transforms.divisible_crop import DivisibleCrop
             from data.image.transforms.na_resize import NaResize
             from data.video.transforms.rearrange import Rearrange
@@ -674,20 +733,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 ]
             )
 
-            cond_tensor = video_transform(video_tensor.to(device))
-
-            # Pad temporal dimension to 4*sp_size alignment (sp_size=1 for single GPU)
-            sp_size = 1
-            t = cond_tensor.shape[1]
-            if t > 1:
-                if t <= 4 * sp_size:
-                    pad_count = 4 * sp_size - t + 1
-                    cond_tensor = torch.cat([cond_tensor] + [cond_tensor[:, -1:]] * pad_count, dim=1)
-                elif (t - 1) % (4 * sp_size) != 0:
-                    pad_count = 4 * sp_size - ((t - 1) % (4 * sp_size))
-                    cond_tensor = torch.cat([cond_tensor] + [cond_tensor[:, -1:]] * pad_count, dim=1)
-
-            # Pre-computed text embeddings are shipped in the SeedVR repo root
+            # Pre-computed text embeddings are shared across all batches
             text_pos = torch.load(str(seedvr_root / "pos_emb.pt"), map_location=device)
             text_neg = torch.load(str(seedvr_root / "neg_emb.pt"), map_location=device)
             text_embeds: dict[str, list[torch.Tensor]] = {
@@ -695,63 +741,115 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 "texts_neg": [text_neg],
             }
 
-            # Offload DiT to CPU while VAE encodes to stay within VRAM budget
-            runner.vae.to(device)
-            runner.dit.to("cpu")
-            cond_latents = runner.vae_encode([cond_tensor])
-            runner.vae.to("cpu")
-            runner.dit.to(device)
+            # Build overlapping windows over the full frame list
+            overlap = max(0, min(overlap_param, batch_n - 1))
+            step = max(1, batch_n - overlap)
+            windows = _make_windows(total_frames, batch_n, step)
+            logger.info(
+                "Processing %d windows (batch=%d, overlap=%d, step=%d)",
+                len(windows),
+                batch_n,
+                overlap,
+                step,
+            )
 
-            from common.seed import set_seed
+            # Output accumulators on CPU — avoids holding VRAM during accumulation
+            output_acc: torch.Tensor | None = None
+            weight_acc: torch.Tensor | None = None
 
-            set_seed(seed, same_across_ranks=True)
-
-            from common.distributed.ops import sync_data
-
-            noises = [torch.randn_like(latent) for latent in cond_latents]
-            aug_noises = [torch.randn_like(latent) for latent in cond_latents]
-
-            noises, aug_noises, cond_latents = sync_data((noises, aug_noises, cond_latents), 0)
-            noises = [n.to(device) for n in noises]
-            aug_noises = [n.to(device) for n in aug_noises]
-            cond_latents = [n.to(device) for n in cond_latents]
-
-            # cond_noise_scale=0.0 makes _add_noise an identity (no augmentation noise)
+            sp_size = 1
             cond_noise_scale = 0.0
 
-            def _add_noise(x: torch.Tensor, aug_noise: torch.Tensor) -> torch.Tensor:
-                t_val = torch.tensor([1000.0], device=device) * cond_noise_scale
-                shape = torch.tensor(x.shape[1:], device=device)[None]
-                t_shifted = runner.timestep_transform(t_val, shape)
-                return runner.schedule.forward(x, aug_noise, t_shifted)  # type: ignore[union-attr]
+            for win_idx, (win_start, win_end) in enumerate(windows):
+                n_win = win_end - win_start
+                batch_np = np.stack(frames[win_start:win_end], axis=0)  # (T, H, W, C) uint8
+                batch_tensor = torch.from_numpy(batch_np).permute(0, 3, 1, 2).float() / 255.0
 
-            conditions = [
-                runner.get_condition(noise, task="sr", latent_blur=_add_noise(latent_blur, aug_noise))
-                for noise, aug_noise, latent_blur in zip(noises, aug_noises, cond_latents, strict=False)
-            ]
+                cond_tensor = video_transform(batch_tensor.to(device))  # (C, T, H, W)
 
-            with torch.no_grad(), torch.autocast("cuda", torch.bfloat16, enabled=True):
-                video_tensors = runner.inference(
-                    noises=noises,
-                    conditions=conditions,
-                    dit_offload=True,
-                    **text_embeds,
-                )
+                # Pad temporal dim to nearest 4n+1 required by the VAE
+                t = cond_tensor.shape[1]
+                if t > 1:
+                    if t <= 4 * sp_size:
+                        pad_count = 4 * sp_size - t + 1
+                        cond_tensor = torch.cat([cond_tensor] + [cond_tensor[:, -1:]] * pad_count, dim=1)
+                    elif (t - 1) % (4 * sp_size) != 0:
+                        pad_count = 4 * sp_size - ((t - 1) % (4 * sp_size))
+                        cond_tensor = torch.cat([cond_tensor] + [cond_tensor[:, -1:]] * pad_count, dim=1)
 
-            # Rearrange model output: (C, T, H, W) or (C, H, W) → (T, C, H, W)
-            samples = [
-                rearrange(v[:, None], "c t h w -> t c h w") if v.ndim == 3 else rearrange(v, "c t h w -> t c h w")
-                for v in video_tensors
-            ]
-            del video_tensors
-            runner.dit.to("cpu")
+                # Phase 1: VAE encode — VAE on GPU, DiT on CPU
+                runner.vae.to(device)
+                runner.dit.to("cpu")
+                cond_latents = runner.vae_encode([cond_tensor])
+                runner.vae.to("cpu")
+                _clear_vram()
 
-            sample = samples[0].to("cpu")
-            if original_frame_count < sample.shape[0]:
-                sample = sample[:original_frame_count]
+                # Phase 2: DiT inference + VAE decode — DiT on GPU
+                runner.dit.to(device)
+                set_seed(seed + win_idx, same_across_ranks=True)
 
-            # (T, C, H, W) → (T, H, W, C) uint8 numpy for mediapy
-            sample_hwc = rearrange(sample, "t c h w -> t h w c")
+                noises = [torch.randn_like(latent) for latent in cond_latents]
+                aug_noises = [torch.randn_like(latent) for latent in cond_latents]
+                noises, aug_noises, cond_latents = sync_data((noises, aug_noises, cond_latents), 0)
+                noises = [n.to(device) for n in noises]
+                aug_noises = [n.to(device) for n in aug_noises]
+                cond_latents = [n.to(device) for n in cond_latents]
+
+                def _add_noise(x: torch.Tensor, aug_noise: torch.Tensor) -> torch.Tensor:
+                    t_val = torch.tensor([1000.0], device=device) * cond_noise_scale
+                    shape = torch.tensor(x.shape[1:], device=device)[None]
+                    t_shifted = runner.timestep_transform(t_val, shape)
+                    return runner.schedule.forward(x, aug_noise, t_shifted)  # type: ignore[union-attr]
+
+                conditions = [
+                    runner.get_condition(noise, task="sr", latent_blur=_add_noise(latent_blur, aug_noise))
+                    for noise, aug_noise, latent_blur in zip(noises, aug_noises, cond_latents, strict=False)
+                ]
+
+                with torch.no_grad(), torch.autocast("cuda", torch.bfloat16, enabled=True):
+                    video_tensors = runner.inference(
+                        noises=noises,
+                        conditions=conditions,
+                        dit_offload=True,
+                        **text_embeds,
+                    )
+
+                samples = [
+                    rearrange(v[:, None], "c t h w -> t c h w") if v.ndim == 3 else rearrange(v, "c t h w -> t c h w")
+                    for v in video_tensors
+                ]
+                del video_tensors, conditions, noises, aug_noises, cond_latents, cond_tensor, batch_tensor
+
+                runner.dit.to("cpu")
+                _clear_vram()
+
+                sample = samples[0].cpu()  # (T, C, H, W) float in [-1, 1]
+                sample = sample[:n_win]  # trim temporal padding
+
+                # Initialize accumulators once we know actual output H/W
+                if output_acc is None:
+                    out_c, out_h, out_w = sample.shape[1], sample.shape[2], sample.shape[3]
+                    output_acc = torch.zeros(total_frames, out_c, out_h, out_w)
+                    weight_acc = torch.zeros(total_frames, 1, 1, 1)
+
+                assert output_acc is not None
+                assert weight_acc is not None
+
+                is_first = win_idx == 0
+                is_last = win_idx == len(windows) - 1
+                weights = _compute_hann_weights(n_win, overlap, is_first, is_last).view(-1, 1, 1, 1)
+
+                output_acc[win_start : win_start + n_win] += sample * weights
+                weight_acc[win_start : win_start + n_win] += weights
+
+                del sample, samples
+                logger.info("Window %d/%d complete", win_idx + 1, len(windows))
+
+            assert output_acc is not None and weight_acc is not None
+
+            # Normalize blended output and convert to uint8 numpy
+            final = output_acc / weight_acc.clamp(min=1e-6)  # (T, C, H, W) in [-1, 1]
+            sample_hwc = rearrange(final, "t c h w -> t h w c")
             sample_np = sample_hwc.clip(-1, 1).mul_(0.5).add_(0.5).mul_(255).round_().to(torch.uint8).numpy()
 
             out_fps = output_fps_param if output_fps_param is not None else input_fps
@@ -772,8 +870,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             self.parameter_output_values["output_video"] = VideoUrlArtifact(saved.location)
             self._set_status_results(was_successful=True, result_details="SUCCESS: Video upscaled successfully")
 
-            gc.collect()
-            torch.cuda.empty_cache()
+            _clear_vram()
 
         finally:
             os.chdir(original_cwd)
