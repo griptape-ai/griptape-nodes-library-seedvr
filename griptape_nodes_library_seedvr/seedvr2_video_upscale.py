@@ -394,6 +394,39 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         except Exception:
             return False
 
+    def _stage_model_from_hf_cache(self, repo_id: str) -> None:
+        """Link checkpoint files from the HF cache into the SeedVR submodule's expected layout.
+
+        Tries symlink first (Linux/Mac + Windows Developer Mode), falls back to hard link
+        (Windows, same drive, no special permissions needed), then copies as a last resort.
+        """
+        import shutil  # noqa: PLC0415
+
+        from huggingface_hub import snapshot_download  # noqa: PLC0415
+
+        def _link(src: Path, dst: Path) -> None:
+            if dst.exists():
+                return
+            try:
+                dst.symlink_to(src)
+            except (OSError, NotImplementedError):
+                try:
+                    os.link(src, dst)
+                except OSError:
+                    shutil.copy2(src, dst)
+
+        snapshot_dir = Path(snapshot_download(repo_id, local_files_only=True))
+        seedvr_root = self._get_seedvr_root()
+        ckpts_dir = seedvr_root / "ckpts"
+        ckpts_dir.mkdir(exist_ok=True)
+
+        _, ckpt_file = _MODEL_CONFIG[repo_id]
+        for fname in [ckpt_file, "ema_vae.pth"]:
+            _link(snapshot_dir / fname, ckpts_dir / fname)
+
+        for fname in ["pos_emb.pt", "neg_emb.pt"]:
+            _link(snapshot_dir / fname, seedvr_root / fname)
+
     def _refresh_model_dropdown(self) -> None:
         data = []
         for repo_id in MODEL_REPO_IDS:
@@ -410,16 +443,13 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         if self.parameter_values.get("input_video") is None:
             errors.append(ValueError("input_video is required"))
         model_repo_id = self.parameter_values.get("model") or MODEL_REPO_IDS[0]
-        if model_repo_id in _MODEL_CONFIG:
-            _, ckpt_file = _MODEL_CONFIG[model_repo_id]
-            dit_ckpt = self._get_seedvr_root() / "ckpts" / ckpt_file
-            if not dit_ckpt.exists():
-                errors.append(
-                    RuntimeError(
-                        f"Model checkpoint not found for '{model_repo_id}'. "
-                        "Download it via the Model Manager before running this node."
-                    )
+        if not self._is_model_downloaded(model_repo_id):
+            errors.append(
+                RuntimeError(
+                    f"Model '{model_repo_id}' is not downloaded. "
+                    "Download it via the Model Manager before running this node."
                 )
+            )
         return errors if errors else None
 
     def process(self) -> AsyncResult[None]:
@@ -453,16 +483,11 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             raise ValueError("input_video is required")
 
         seedvr_root = self._get_seedvr_root()
-        ckpts_dir = seedvr_root / "ckpts"
         config_dir, ckpt_file = _MODEL_CONFIG[model_repo_id]
         config_path = seedvr_root / config_dir / "main.yaml"
-        dit_ckpt = ckpts_dir / ckpt_file
 
-        if not dit_ckpt.exists():
-            raise RuntimeError(
-                f"Model checkpoint not found for '{model_repo_id}'.\n"
-                "Please download the model via the Model Manager before running this node."
-            )
+        self._stage_model_from_hf_cache(model_repo_id)
+        dit_ckpt = seedvr_root / "ckpts" / ckpt_file
 
         original_cwd = os.getcwd()
         try:

@@ -129,7 +129,9 @@ check/json: ## Validate JSON files.
 	@find . -name "*.json" -type f \
 		! -path "./.venv/*" \
 		! -path "./node_modules/*" \
-		-exec sh -c 'jq empty "{}" > /dev/null 2>&1 || (echo "Invalid JSON: {}" && exit 1)' \;
+		! -path "./.git/*" \
+		! -path "./griptape_nodes_library_seedvr/seedvr/*" \
+		-exec sh -c 'uv run python -c "import json,sys; json.load(open(sys.argv[1]))" "{}" 2>/dev/null || (echo "Invalid JSON: {}" && exit 1)' \;
 
 .DEFAULT_GOAL := help
 .PHONY: help
