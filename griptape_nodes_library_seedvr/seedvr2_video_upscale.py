@@ -697,6 +697,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             input_fps = float(raw_fps if raw_fps > 0 else 24.0)
             _all_frames: list | None = None
             _stream_frames = False
+            h0, w0 = 0, 0
 
             if total_frames > 0:
                 _first = _decode_frame_range(video_path, 0, 1)
