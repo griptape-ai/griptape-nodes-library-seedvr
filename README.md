@@ -15,6 +15,12 @@ This library includes a ready-to-run workflow template you can load directly in 
 Loads a sample low-resolution image, upscales it 3× with the SeedVR2-3B model, and displays the before/after side-by-side using a Compare Images node.
 ![SeedVR2 Image Upscale workflow template](images/image_upscale_template.png)
 
+### SeedVR2 Video Upscale
+
+Loads a sample low-resolution video, upscales 2x with the SeedVR2-3B model, and displays the before/after side-by-side using a Compare Videos node.
+
+![SeedVR2 Video Upscale workflow template](images/video_upscale_template.png)
+
 ---
 
 ## Why SeedVR2?
