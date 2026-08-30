@@ -41,7 +41,7 @@ def snap_to_4n1(n: int) -> int:
     return max(1, 4 * ((n - 1) // 4) + 1)
 
 
-def ideal_batch_size(frame_count: int, max_batch_size: int = 21) -> int:
+def ideal_batch_size(frame_count: int, max_batch_size: int = 41) -> int:
     """Compute the largest valid 4n+1 batch size that fits within the frame count."""
     ceiling = snap_to_4n1(max_batch_size)
     limit = min(frame_count, ceiling)
@@ -201,6 +201,27 @@ def _decode_video(video_path: str) -> tuple[list, float]:
     return frames, raw_fps
 
 
+def _decode_frame_range(video_path: str, start: int, end: int) -> list:
+    """Decode frames [start, end) from a video file using frame seeking.
+
+    Returns a list of RGB numpy arrays. Uses cv2 CAP_PROP_POS_FRAMES for
+    seeking — reliable for well-formed MP4/H.264; returns an empty list on failure.
+    """
+    import cv2
+
+    frames: list = []
+    cap = cv2.VideoCapture(video_path)
+    if cap.isOpened():
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start)
+        for _ in range(end - start):
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        cap.release()
+    return frames
+
+
 class SeedVR2VideoUpscale(SuccessFailureNode):
     """Upscale and restore video using SeedVR2 diffusion transformer from ByteDance."""
 
@@ -289,10 +310,10 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 name="batch_size",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 type="int",
-                default_value=13,
+                default_value=41,
                 tooltip=(
                     "Frames processed per diffusion step — must be 4n+1 (1, 5, 9, 13, ...). "
-                    "Reduce if VRAM runs out; increase for better temporal consistency."
+                    "Reduce if you run out of VRAM; increase for fewer windows and faster processing."
                 ),
             )
         )
@@ -669,18 +690,37 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             import numpy as np
 
             video_path = str(File(video_artifact.value).resolve())
-            frames, raw_fps = _decode_video(video_path)
-            if not frames:
-                raise ValueError(
-                    "Input video has 0 readable frames — the file may be corrupt "
-                    f"or in an unsupported format: {video_path}"
-                )
 
-            total_frames = len(frames)
+            # Try to get metadata without decoding all frames upfront.
+            # On success, frames are loaded per-window to keep peak RAM low.
+            raw_fps, total_frames = _probe_video(video_path)
             input_fps = float(raw_fps if raw_fps > 0 else 24.0)
+            _all_frames: list | None = None
+            _stream_frames = False
+            h0, w0 = 0, 0
 
-            # Compute output dimensions from first frame shape
-            h0, w0 = frames[0].shape[0], frames[0].shape[1]
+            if total_frames > 0:
+                _first = _decode_frame_range(video_path, 0, 1)
+                if _first:
+                    h0, w0 = _first[0].shape[0], _first[0].shape[1]
+                    del _first
+                    _stream_frames = True
+                else:
+                    total_frames = 0  # force fallback
+
+            if not _stream_frames:
+                # Probe failed or first-frame seek failed — load everything at once.
+                _all_frames, fps_fallback = _decode_video(video_path)
+                if not _all_frames:
+                    raise ValueError(
+                        "Input video has 0 readable frames — the file may be corrupt "
+                        f"or in an unsupported format: {video_path}"
+                    )
+                total_frames = len(_all_frames)
+                if fps_fallback > 0:
+                    input_fps = float(fps_fallback)
+                h0, w0 = _all_frames[0].shape[0], _all_frames[0].shape[1]
+
             if resize_mode == "scale":
                 scale_factor = float(_scale_str.rstrip("x"))
                 output_height = int(h0 * scale_factor)
@@ -747,8 +787,15 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
 
             for win_idx, (win_start, win_end) in enumerate(windows):
                 n_win = win_end - win_start
-                batch_np = np.stack(frames[win_start:win_end], axis=0)  # (T, H, W, C) uint8
+                if _stream_frames:
+                    _win_frames = _decode_frame_range(video_path, win_start, win_end)
+                else:
+                    _win_frames = _all_frames[win_start:win_end]  # type: ignore[index]
+                batch_np = np.stack(_win_frames, axis=0)  # (T, H, W, C) uint8
+                if _stream_frames:
+                    del _win_frames
                 batch_tensor = torch.from_numpy(batch_np).permute(0, 3, 1, 2).float() / 255.0
+                del batch_np
 
                 cond_tensor = video_transform(batch_tensor.to(device))  # (C, T, H, W)
 
