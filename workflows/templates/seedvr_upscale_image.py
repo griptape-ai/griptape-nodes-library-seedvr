@@ -18,15 +18,11 @@
 
 import pickle
 
-from griptape.artifacts.image_url_artifact import ImageUrlArtifact
-from griptape_nodes.node_library.library_registry import IconVariant, NodeDeprecationMetadata, NodeMetadata
 from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest
 from griptape_nodes.retained_mode.events.flow_events import CreateFlowRequest
 from griptape_nodes.retained_mode.events.library_events import RegisterLibraryFromFileRequest
 from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest
 from griptape_nodes.retained_mode.events.parameter_events import (
-    AddParameterToNodeRequest,
-    AlterParameterDetailsRequest,
     SetParameterValueRequest,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
