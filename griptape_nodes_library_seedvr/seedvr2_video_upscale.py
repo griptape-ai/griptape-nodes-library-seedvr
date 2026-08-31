@@ -312,8 +312,10 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 type="int",
                 default_value=41,
                 tooltip=(
-                    "Frames processed per diffusion step — must be 4n+1 (1, 5, 9, 13, ...). "
-                    "Reduce if you run out of VRAM; increase for fewer windows and faster processing."
+                    "How many frames are upscaled together in each pass. "
+                    "Larger values are faster (fewer passes) but use more GPU memory. "
+                    "If you get an out-of-memory error, try cutting this in half. "
+                    "Must be 1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, ... (any 4n+1 number)."
                 ),
             )
         )
@@ -322,9 +324,9 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             ParameterInt(
                 name="temporal_overlap",
                 tooltip=(
-                    "Frames of overlap between adjacent batches. "
-                    "Overlapping frames are blended with a Hann (cosine) window to hide batch seams. "
-                    "0 disables blending. Must be less than batch_size."
+                    "How many frames are shared between consecutive passes and blended together. "
+                    "A small overlap (2–4) smooths out any visible seams at pass boundaries. "
+                    "Set to 0 to disable blending entirely. Must be less than Batch Size."
                 ),
                 default_value=2,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
