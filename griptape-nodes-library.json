@@ -17,20 +17,7 @@
             "Super-Resolution"
         ],
         "dependencies": {
-            "pip_dependencies": [
-                "torch",
-                "torchvision",
-                "torchaudio",
-                "numpy<2",
-                "einops==0.7.0",
-                "omegaconf==2.3.0",
-                "opencv-python==4.9.0.80",
-                "diffusers==0.29.1",
-                "rotary-embedding-torch==0.5.3",
-                "mediapy==1.2.0",
-                "huggingface_hub",
-                "av"
-            ],
+            "pip_dependencies": [],
             "pip_install_flags": [
                 "--preview",
                 "--torch-backend=auto"
@@ -38,7 +25,12 @@
         },
         "resources": {
             "required": {
-                "compute": [["cuda"], "has_any"]
+                "compute": [
+                    [
+                        "cuda"
+                    ],
+                    "has_any"
+                ]
             }
         },
         "declarations": [
