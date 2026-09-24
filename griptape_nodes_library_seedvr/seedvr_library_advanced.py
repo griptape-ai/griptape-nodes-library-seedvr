@@ -5,6 +5,7 @@ from pathlib import Path
 
 from griptape_nodes.node_library.advanced_node_library import AdvancedNodeLibrary
 from griptape_nodes.node_library.library_registry import Library, LibrarySchema
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,10 @@ logger = logging.getLogger(__name__)
 class SeedVRLibraryAdvanced(AdvancedNodeLibrary):
     def before_library_nodes_loaded(self, library_data: LibrarySchema, library: Library) -> None:
         logger.info(f"Loading '{library_data.name}' library...")
+        # This hook runs on the orchestrator too, but the submodule it clones and puts on
+        # sys.path is the execution environment: only a worker imports from it.
+        if not GriptapeNodes.LibraryManager().is_worker:
+            return
         submodule_path = self._init_submodule()
         self._add_submodule_to_path(submodule_path)
 
