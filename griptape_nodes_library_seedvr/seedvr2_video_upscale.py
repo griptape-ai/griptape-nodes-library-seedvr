@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 import gc
 import logging
@@ -6,10 +8,8 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import torch
-from einops import rearrange
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
@@ -20,6 +20,11 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
 from griptape_nodes.traits.options import Options
+
+# torch and einops live in the execution environment, which only a worker has on its path. The
+# orchestrator imports this module to build the node class, so every use imports them locally.
+if TYPE_CHECKING:
+    import torch
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +74,8 @@ def _compute_hann_weights(n: int, overlap: int, is_first: bool, is_last: bool) -
     Frames inside the overlap zone at the start/end of a window fade in/out
     with a raised-cosine (Hann) curve so that adjacent windows sum to 1.0.
     """
+    import torch
+
     weights = torch.ones(n)
     if overlap <= 0 or n <= 1:
         return weights
@@ -85,9 +92,11 @@ def _compute_hann_weights(n: int, overlap: int, is_first: bool, is_last: bool) -
     return weights
 
 
-def _clear_vram() -> None:
+def _clear_vram(execution_device: str) -> None:
     gc.collect()
-    if torch.cuda.is_available():
+    if execution_device == "cuda":
+        import torch
+
         torch.cuda.empty_cache()
 
 
@@ -489,6 +498,11 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             self._handle_failure_exception(e)
 
     def _do_inference(self) -> None:  # noqa: PLR0912, PLR0915
+        import torch
+        from einops import rearrange
+
+        execution_device = self.execution_device
+
         model_repo_id: str = self.parameter_values.get("model") or MODEL_REPO_IDS[0]
         logger.info("Starting inference with model=%s", model_repo_id)
         self._seed_param.preprocess()
@@ -657,7 +671,8 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 torch.backends.cuda.matmul.allow_tf32 = True
                 torch.backends.cudnn.allow_tf32 = True
                 torch.backends.cudnn.benchmark = False
-                torch.cuda.set_device(0)
+                if execution_device == "cuda":
+                    torch.cuda.set_device(0)
                 backend = "nccl" if sys.platform != "win32" else "gloo"
                 dist.init_process_group(
                     backend=backend,
@@ -675,7 +690,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 config = load_config(str(config_path))
                 runner = VideoDiffusionInfer(config)
                 OmegaConf.set_readonly(runner.config, False)
-                runner.configure_dit_model(device="cuda", checkpoint=str(dit_ckpt))
+                runner.configure_dit_model(device=execution_device, checkpoint=str(dit_ckpt))
                 runner.configure_vae_model()
                 if hasattr(runner.vae, "set_memory_limit"):
                     runner.vae.set_memory_limit(**runner.config.vae.memory_limit)
@@ -816,7 +831,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 runner.dit.to("cpu")
                 cond_latents = runner.vae_encode([cond_tensor])
                 runner.vae.to("cpu")
-                _clear_vram()
+                _clear_vram(execution_device)
 
                 # Phase 2: DiT inference + VAE decode — DiT on GPU
                 runner.dit.to(device)
@@ -840,7 +855,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                     for noise, aug_noise, latent_blur in zip(noises, aug_noises, cond_latents, strict=False)
                 ]
 
-                with torch.no_grad(), torch.autocast("cuda", torch.bfloat16, enabled=True):
+                with torch.no_grad(), torch.autocast(execution_device, torch.bfloat16, enabled=True):
                     video_tensors = runner.inference(
                         noises=noises,
                         conditions=conditions,
@@ -855,7 +870,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 del video_tensors, conditions, noises, aug_noises, cond_latents, cond_tensor, batch_tensor
 
                 runner.dit.to("cpu")
-                _clear_vram()
+                _clear_vram(execution_device)
 
                 sample = samples[0].cpu()  # (T, C, H, W) float in [-1, 1]
                 sample = sample[:n_win]  # trim temporal padding
@@ -907,7 +922,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             saved = file_dest.write_bytes(video_bytes)
             self.parameter_output_values["output_video"] = VideoUrlArtifact(saved.location)
 
-            _clear_vram()
+            _clear_vram(execution_device)
 
         finally:
             os.chdir(original_cwd)

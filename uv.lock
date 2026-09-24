@@ -474,6 +474,9 @@ dependencies = [
 name = "griptape-nodes-library-seedvr"
 version = "0.1.0"
 source = { editable = "." }
+dependencies = [
+    { name = "huggingface-hub" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -485,6 +488,7 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [{ name = "huggingface-hub" }]
 
 [package.metadata.requires-dev]
 dev = [

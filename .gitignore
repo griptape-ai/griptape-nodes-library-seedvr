@@ -218,4 +218,5 @@ __marimo__/
 .scratch/
 *.py[cod]
 .venv/
+.venv-exec
 .installed_commit
