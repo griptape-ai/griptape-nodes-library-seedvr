@@ -52,10 +52,6 @@
             {
                 "type": "worker_mode_compatibility",
                 "compatibility": "COMPATIBLE"
-            },
-            {
-                "type": "suggested_worker_mode",
-                "mode": "WORKER"
             }
         ]
     },
