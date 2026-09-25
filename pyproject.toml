@@ -1,6 +1,6 @@
 [project]
 name = "griptape-nodes-library-seedvr"
-version = "0.1.0"
+version = "0.2.0"
 description = "Griptape Nodes library for video restoration and upscaling using SeedVR2"
 authors = [{ name = "Griptape, Inc.", email = "hello@griptape.ai" }]
 readme = "README.md"
