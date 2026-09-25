@@ -484,6 +484,19 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             )
         return errors if errors else None
 
+    def validate_in_execution_environment(self) -> list[Exception] | None:
+        # The vendored runner resolves its own device through `common.distributed.get_device`, which
+        # always answers CUDA. Anything else here puts the tensors somewhere the model is not.
+        execution_device = self.execution_device
+        if execution_device != "cuda":
+            return [
+                RuntimeError(
+                    "Attempted to upscale a video with SeedVR2. Failed due to the engine reporting "
+                    f"'{execution_device}' as this machine's compute device; SeedVR2 runs on CUDA only."
+                )
+            ]
+        return None
+
     def process(self) -> AsyncResult[None]:
         self._clear_execution_status()
         try:
