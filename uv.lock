@@ -479,7 +479,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "huggingface-hub", specifier = "<2" }]
+requires-dist = [{ name = "huggingface-hub" }]
 
 [package.metadata.requires-dev]
 dev = [

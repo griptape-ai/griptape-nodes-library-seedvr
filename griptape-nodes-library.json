@@ -18,7 +18,7 @@
         ],
         "dependencies": {
             "pip_dependencies": [
-                "huggingface_hub<2"
+                "huggingface_hub"
             ],
             "pip_install_flags": [
                 "--preview",
