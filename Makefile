@@ -70,6 +70,8 @@ version/publish: ## Create and push git tags.
 
 .PHONY: deps/sync
 deps/sync: ## Sync pip_dependencies in the library JSON from pyproject.toml.
+	@# Only pip_dependencies. pip_dependencies_exec has no pyproject counterpart to mirror and is
+	@# maintained by hand in the manifest.
 	@uv run python -c "\
 import tomllib, json; \
 pyproject = tomllib.load(open('pyproject.toml', 'rb')); \
@@ -89,7 +91,10 @@ install/core: deps/sync ## Install core dependencies.
 
 .PHONY: install/all
 install/all: deps/sync ## Install all dependencies.
-	@uv sync --all-groups --all-extras
+	@# Deliberately not --all-extras. A dev venv holding the execution-time packages would let
+	@# orchestrator-side code import what a real orchestrator cannot, hiding the whole class of bug
+	@# the edit-time/execution-time split exists to surface.
+	@uv sync --all-groups
 
 .PHONY: install/dev
 install/dev: ## Install dev dependencies.

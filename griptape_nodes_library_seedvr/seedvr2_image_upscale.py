@@ -7,8 +7,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import torch
-from einops import rearrange
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
@@ -228,6 +226,19 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
             )
         return errors if errors else None
 
+    def validate_in_execution_environment(self) -> list[Exception] | None:
+        # The vendored runner resolves its own device through `common.distributed.get_device`, which
+        # always answers CUDA. Anything else here puts the tensors somewhere the model is not.
+        execution_device = self.execution_device
+        if execution_device != "cuda":
+            return [
+                RuntimeError(
+                    "Attempted to upscale an image with SeedVR2. Failed due to the engine reporting "
+                    f"'{execution_device}' as this machine's compute device; SeedVR2 runs on CUDA only."
+                )
+            ]
+        return None
+
     def process(self) -> AsyncResult[None]:
         self._clear_execution_status()
         try:
@@ -242,6 +253,13 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
             self._handle_failure_exception(e)
 
     def _do_inference(self) -> None:
+        # Deferred: torch and einops live in the execution environment, which only a worker has on
+        # its path. The orchestrator imports this module to build the node class.
+        import torch
+        from einops import rearrange
+
+        execution_device = self.execution_device
+
         model_repo_id: str = self.parameter_values.get("model") or MODEL_REPO_IDS[0]
         self._seed_param.preprocess()
         seed = self._seed_param.get_seed()
@@ -379,7 +397,8 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
                 torch.backends.cuda.matmul.allow_tf32 = True
                 torch.backends.cudnn.allow_tf32 = True
                 torch.backends.cudnn.benchmark = False
-                torch.cuda.set_device(0)
+                if execution_device == "cuda":
+                    torch.cuda.set_device(0)
                 backend = "nccl" if sys.platform != "win32" else "gloo"
                 dist.init_process_group(
                     backend=backend,
@@ -396,7 +415,7 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
                 config = load_config(str(config_path))
                 runner = VideoDiffusionInfer(config)
                 OmegaConf.set_readonly(runner.config, False)
-                runner.configure_dit_model(device="cuda", checkpoint=str(dit_ckpt))
+                runner.configure_dit_model(device=execution_device, checkpoint=str(dit_ckpt))
                 runner.configure_vae_model()
                 if hasattr(runner.vae, "set_memory_limit"):
                     runner.vae.set_memory_limit(**runner.config.vae.memory_limit)
@@ -495,7 +514,7 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
                 for noise, aug_noise, latent_blur in zip(noises, aug_noises, cond_latents, strict=False)
             ]
 
-            with torch.no_grad(), torch.autocast("cuda", torch.bfloat16, enabled=True):
+            with torch.no_grad(), torch.autocast(execution_device, torch.bfloat16, enabled=True):
                 video_tensors = runner.inference(
                     noises=noises,
                     conditions=conditions,
@@ -533,7 +552,8 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
             self.parameter_output_values["output_image"] = ImageUrlArtifact(saved.location)
 
             gc.collect()
-            torch.cuda.empty_cache()
+            if execution_device == "cuda":
+                torch.cuda.empty_cache()
 
         finally:
             os.chdir(original_cwd)
