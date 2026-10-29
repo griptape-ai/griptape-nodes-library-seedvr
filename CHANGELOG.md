@@ -10,4 +10,4 @@ the `library_version` in `griptape-nodes-library.json`.
 
 <!-- Entries go in changelog.d/, one file each. See changelog.d/README.md. -->
 
-[Unreleased]: https://github.com/griptape-ai/griptape-nodes-library-seedvr/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/griptape-ai/griptape-nodes-library-seedvr/compare/e910f540ebc848d7e0938f97b8720759c8ed8b48...HEAD
