@@ -86,15 +86,6 @@ wheels = [
 ]
 
 [[package]]
-name = "binaryornot"
-version = "0.6.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/86/72/4755b85101f37707c71526a301c1203e413c715a0016ecb592de3d2dcfff/binaryornot-0.6.0.tar.gz", hash = "sha256:cc8d57cfa71d74ff8c28a7726734d53a851d02fad9e3a5581fb807f989f702f0", size = 478718, upload-time = "2026-03-08T16:26:28.804Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/cd/0c/31cfaa6b56fe23488ecb993bc9fc526c0d84d89607decdf2a10776426c2e/binaryornot-0.6.0-py3-none-any.whl", hash = "sha256:900adfd5e1b821255ba7e63139b0396b14c88b9286e74e03b6f51e0200331337", size = 14185, upload-time = "2026-03-08T16:26:27.466Z" },
-]
-
-[[package]]
 name = "cachetools"
 version = "7.1.4"
 source = { registry = "https://pypi.org/simple" }
@@ -423,17 +414,18 @@ wheels = [
 
 [[package]]
 name = "griptape-nodes-engine"
-version = "0.102.0"
-source = { git = "https://github.com/griptape-ai/griptape-nodes-engine?rev=latest#697e054a90b9f630f3bb0309ac0657664cfb470b" }
+version = "0.107.0"
+source = { git = "https://github.com/griptape-ai/griptape-nodes-engine?rev=latest#f535ea6f7aab4901bb71f83b48f340f7a53786b5" }
 dependencies = [
     { name = "anyio" },
     { name = "asyncio-thread-runner" },
-    { name = "binaryornot" },
+    { name = "attrs" },
     { name = "cattrs" },
     { name = "fastapi" },
     { name = "fileseq" },
     { name = "griptape" },
     { name = "httpx" },
+    { name = "httpx2" },
     { name = "huggingface-hub" },
     { name = "json-repair" },
     { name = "mcp" },
@@ -441,10 +433,10 @@ dependencies = [
     { name = "pillow" },
     { name = "portalocker" },
     { name = "pydantic" },
+    { name = "pydantic-ai-harness" },
     { name = "pydantic-ai-skills" },
     { name = "pydantic-ai-slim", extra = ["mcp", "openai"] },
     { name = "python-dotenv" },
-    { name = "python-multipart" },
     { name = "rich" },
     { name = "ruamel-yaml" },
     { name = "semver" },
@@ -453,7 +445,6 @@ dependencies = [
     { name = "tenacity" },
     { name = "tomlkit" },
     { name = "truststore" },
-    { name = "typer" },
     { name = "uv" },
     { name = "uvicorn" },
     { name = "watchfiles" },
