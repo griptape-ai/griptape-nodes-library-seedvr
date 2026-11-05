@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, NodeErrorLink, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
@@ -473,13 +473,15 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
     def validate_before_node_run(self) -> list[Exception] | None:
         errors: list[Exception] = []
         if self.parameter_values.get("input_video") is None:
-            errors.append(ValueError("input_video is required"))
+            errors.append(NodeError("Connect a video to 'Input Video'.", fields={"parameter": "input_video"}))
         model_repo_id = self.parameter_values.get("model") or MODEL_REPO_IDS[0]
         if not self._is_model_downloaded(model_repo_id):
             errors.append(
-                RuntimeError(
-                    f"Model '{model_repo_id}' is not downloaded. "
-                    "Download it via the Model Manager before running this node."
+                NodeError(
+                    f"The model '{model_repo_id}' is not downloaded. "
+                    "Download it in the Model Manager, then run the node again.",
+                    fields={"parameter": "model", "model": model_repo_id},
+                    links=[NodeErrorLink(label="Open Model Manager", url=f"#model-management?search={model_repo_id}")],
                 )
             )
         return errors if errors else None
@@ -490,9 +492,10 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
         execution_device = self.execution_device
         if execution_device != "cuda":
             return [
-                RuntimeError(
-                    "Attempted to upscale a video with SeedVR2. Failed due to the engine reporting "
-                    f"'{execution_device}' as this machine's compute device; SeedVR2 runs on CUDA only."
+                NodeError(
+                    f"SeedVR2 runs on CUDA only, and the engine reports '{execution_device}' as this machine's "
+                    "compute device. Run the node on a machine with an NVIDIA GPU.",
+                    fields={"device": execution_device},
                 )
             ]
         return None
@@ -506,7 +509,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
             logger.exception("SeedVR2 inference failed")
             self._set_status_results(
                 was_successful=False,
-                result_details=f"FAILURE: {type(e).__name__}: {e}",
+                result_details=f"FAILURE: {e}" if isinstance(e, NodeError) else f"FAILURE: {type(e).__name__}: {e}",
             )
             self._handle_failure_exception(e)
 
@@ -530,7 +533,7 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
 
         video_artifact = self.parameter_values.get("input_video")
         if not isinstance(video_artifact, VideoUrlArtifact):
-            raise ValueError("input_video is required")
+            raise NodeError("Connect a video to 'Input Video'.", fields={"parameter": "input_video"})
 
         seedvr_root = self._get_seedvr_root()
         config_dir, ckpt_file = _MODEL_CONFIG[model_repo_id]
@@ -742,10 +745,8 @@ class SeedVR2VideoUpscale(SuccessFailureNode):
                 # Probe failed or first-frame seek failed — load everything at once.
                 _all_frames, fps_fallback = _decode_video(video_path)
                 if not _all_frames:
-                    raise ValueError(
-                        "Input video has 0 readable frames — the file may be corrupt "
-                        f"or in an unsupported format: {video_path}"
-                    )
+                    msg = "Could not read any frames from the video connected to 'Input Video'. Connect a different video file."
+                    raise NodeError(msg, fields={"parameter": "input_video"})
                 total_frames = len(_all_frames)
                 if fps_fallback > 0:
                     input_fps = float(fps_fallback)
