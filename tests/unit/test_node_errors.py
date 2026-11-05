@@ -29,7 +29,7 @@ def test_missing_input_and_model_are_node_errors(monkeypatch, cls, param, messag
         "The model 'ByteDance-Seed/SeedVR2-3B' is not downloaded. "
         "Download it in the Model Manager, then run the node again."
     )
-    assert [link.url for link in model_error.links] == ["#model-management"]
+    assert [link.url for link in model_error.links] == ["#model-management?search=ByteDance-Seed/SeedVR2-3B"]
 
 
 @pytest.mark.parametrize(("cls", "param", "message"), CASES)

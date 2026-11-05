@@ -223,7 +223,7 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
                     f"The model '{model_repo_id}' is not downloaded. "
                     "Download it in the Model Manager, then run the node again.",
                     fields={"parameter": "model", "model": model_repo_id},
-                    links=[NodeErrorLink(label="Open Model Manager", url="#model-management")],
+                    links=[NodeErrorLink(label="Open Model Manager", url=f"#model-management?search={model_repo_id}")],
                 )
             )
         return errors if errors else None
