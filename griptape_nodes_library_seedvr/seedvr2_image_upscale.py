@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, NodeErrorLink, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
@@ -215,13 +215,15 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
     def validate_before_node_run(self) -> list[Exception] | None:
         errors: list[Exception] = []
         if self.parameter_values.get("input_image") is None:
-            errors.append(ValueError("input_image is required"))
+            errors.append(NodeError("Connect an image to 'Input Image'.", fields={"parameter": "input_image"}))
         model_repo_id = self.parameter_values.get("model") or MODEL_REPO_IDS[0]
         if not self._is_model_downloaded(model_repo_id):
             errors.append(
-                RuntimeError(
-                    f"Model '{model_repo_id}' is not downloaded. "
-                    "Download it via the Model Manager before running this node."
+                NodeError(
+                    f"The model '{model_repo_id}' is not downloaded. "
+                    "Download it in the Model Manager, then run the node again.",
+                    fields={"parameter": "model", "model": model_repo_id},
+                    links=[NodeErrorLink(label="Open Model Manager", url="#model-management")],
                 )
             )
         return errors if errors else None
@@ -232,9 +234,10 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
         execution_device = self.execution_device
         if execution_device != "cuda":
             return [
-                RuntimeError(
-                    "Attempted to upscale an image with SeedVR2. Failed due to the engine reporting "
-                    f"'{execution_device}' as this machine's compute device; SeedVR2 runs on CUDA only."
+                NodeError(
+                    f"SeedVR2 runs on CUDA only, and the engine reports '{execution_device}' as this machine's "
+                    "compute device. Run the node on a machine with an NVIDIA GPU.",
+                    fields={"device": execution_device},
                 )
             ]
         return None
@@ -248,7 +251,7 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
             logger.exception("SeedVR2 image inference failed")
             self._set_status_results(
                 was_successful=False,
-                result_details=f"FAILURE: {type(e).__name__}: {e}",
+                result_details=f"FAILURE: {e}" if isinstance(e, NodeError) else f"FAILURE: {type(e).__name__}: {e}",
             )
             self._handle_failure_exception(e)
 
@@ -271,7 +274,7 @@ class SeedVR2ImageUpscale(SuccessFailureNode):
 
         image_artifact = self.parameter_values.get("input_image")
         if not isinstance(image_artifact, (ImageUrlArtifact, ImageArtifact)):
-            raise ValueError("input_image is required")
+            raise NodeError("Connect an image to 'Input Image'.", fields={"parameter": "input_image"})
 
         seedvr_root = self._get_seedvr_root()
         config_dir, ckpt_file = _MODEL_CONFIG[model_repo_id]
